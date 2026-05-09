@@ -1,0 +1,21 @@
+## Mutes Module - Indonesian
+mutes-mute-success = 🔇 <b>{$name}</b> telah dimute!
+mutes-mute-reason = 📝 Alasan: {$reason}
+mutes-mute-by = 👮 Oleh: {$admin}
+mutes-mute-failed = ❌ Gagal memute: {$error}
+mutes-unmute-success = 🔊 Pengguna telah diunmute!
+mutes-unmute-no-user = ❌ Tentukan pengguna untuk diunmute.
+mutes-unmute-no-perm = ❌ Kamu tidak memiliki izin untuk mengunmute pengguna.
+mutes-unmute-failed = ❌ Gagal mengunmute: {$error}
+mutes-unmute-done = 🔊 Pengguna telah diunmute.
+mutes-unmute-cb-success = ✔️ Pengguna diunmute!
+mutes-unmute-cb-no-perm = ❌ Kamu tidak memiliki izin untuk mengunmute.
+mutes-unmute-cb-failed = ❌ Gagal mengunmute.
+mutes-tmute-success = 🔇 Pengguna telah dimute selama <b>{$time}</b>!
+mutes-tmute-failed = ❌ Gagal memute: {$error}
+mutes-cant-mute-admin = ❌ Saya tidak bisa memute admin/sudo user!
+mutes-no-user = ❌ Tentukan pengguna untuk dimute (balas atau berikan ID).
+mutes-no-restrict-perm = ❌ Kamu tidak memiliki izin untuk memute pengguna.
+mutes-bot-no-restrict = ❌ Saya tidak memiliki izin untuk memute pengguna.
+mutes-tmute-usage = ❌ Tentukan pengguna untuk dimute. Penggunaan: /tmute <pengguna> <waktu> [alasan] (cth. 30s, 5m, 1h, 1d)
+mutes-tmute-invalid-time = ❌ Format waktu tidak valid. Gunakan: 30s, 5m, 1h, 1d

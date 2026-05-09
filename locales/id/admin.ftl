@@ -1,0 +1,20 @@
+## Admin Module - Indonesian
+admin-promote-success = ✅ <b>{$name}</b> telah dipromosikan!
+admin-promote-usage = ❌ Tentukan pengguna untuk dipromosikan (balas atau berikan ID).
+admin-promote-failed = ❌ Gagal mempromosikan: {$error}
+admin-demote-success = ✅ <b>{$name}</b> telah didemosikan!
+admin-demote-usage = ❌ Tentukan pengguna untuk didemosikan (balas atau berikan ID).
+admin-demote-failed = ❌ Gagal mendemosikan: {$error}
+admin-adminlist-header = <b>Admin di {$chat}:</b>
+admin-adminlist-owner = 👑 {$name}
+admin-adminlist-admins = <b>Administrator:</b>
+admin-adminlist-empty = Tidak ada admin yang terlihat.
+admin-adminlist-failed = ❌ Gagal mengambil daftar admin.
+admin-title-set = ✅ Judul admin diatur ke: <b>{$title}</b>
+admin-title-usage = ❌ Berikan judul. Penggunaan: /title &lt;judul&gt; (balas ke pengguna)
+admin-title-reply = ❌ Balas ke pengguna untuk mengatur judul admin mereka.
+admin-title-too-long = ❌ Judul harus 16 karakter atau kurang.
+admin-title-failed = ❌ Gagal mengatur judul: {$error}
+admin-no-promote-perm = ❌ Kamu tidak memiliki izin untuk mempromosikan/mendemosikan pengguna.
+admin-bot-no-promote = ❌ Saya tidak memiliki izin untuk mempromosikan/mendemosikan pengguna.
+admin-need-admin = ❌ Kamu harus menjadi admin untuk menggunakan perintah ini.

@@ -1,0 +1,21 @@
+## Mutes Module - English
+mutes-mute-success = 🔇 <b>{$name}</b> has been muted!
+mutes-mute-reason = 📝 Reason: {$reason}
+mutes-mute-by = 👮 By: {$admin}
+mutes-mute-failed = ❌ Failed to mute: {$error}
+mutes-unmute-success = 🔊 User has been unmuted!
+mutes-unmute-no-user = ❌ Please specify a user to unmute.
+mutes-unmute-no-perm = ❌ You don't have permission to unmute users.
+mutes-unmute-failed = ❌ Failed to unmute: {$error}
+mutes-unmute-done = 🔊 User has been unmuted.
+mutes-unmute-cb-success = ✅ User unmuted!
+mutes-unmute-cb-no-perm = ❌ You don't have permission to unmute.
+mutes-unmute-cb-failed = ❌ Failed to unmute.
+mutes-tmute-success = 🔇 User has been muted for <b>{$time}</b>!
+mutes-tmute-failed = ❌ Failed to mute: {$error}
+mutes-cant-mute-admin = ❌ I can't mute an admin/sudo user!
+mutes-no-user = ❌ Please specify a user to mute (reply or provide ID).
+mutes-no-restrict-perm = ❌ You don't have permission to mute users.
+mutes-bot-no-restrict = ❌ I don't have permission to mute users.
+mutes-tmute-usage = ❌ Please specify a user to mute. Usage: /tmute &lt;user&gt; &lt;time&gt; [reason]
+mutes-tmute-invalid-time = ❌ Invalid time format. Use: 30s, 5m, 1h, 1d

@@ -1,0 +1,14 @@
+version: "3.8"
+
+services:
+  ferris-bot:
+    build: .
+    container_name: ferris-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+    environment:
+      - DATABASE_URL=sqlite:///app/data/ferris.db
+      - RUST_LOG=info

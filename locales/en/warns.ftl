@@ -1,0 +1,24 @@
+## Warns Module - English
+warns-warn-success = ⚠️ <b>{$name}</b> has been warned! ({$count}/{$limit})
+warns-warn-reason = 📝 Reason: {$reason}
+warns-exceeded = ⚠️ <b>{$name}</b> has been <b>{$action}</b>! Reached {$count}/{$limit} warnings.
+warns-header = ⚠️ <b>Warnings ({$count}/{$limit}):</b>
+warns-none = ✅ This user has no warnings.
+warns-no-perm = ❌ You don't have permission to warn users.
+warns-bot-no-restrict = ❌ I don't have permission to restrict members. I can't enforce warn actions!
+warns-no-user = ❌ Please specify a user to warn (reply or provide ID).
+warns-cant-warn-admin = ❌ I can't warn an admin/sudo user!
+warns-reset-success = ✅ Warnings have been reset for this user.
+warns-reset-no-perm = ❌ You don't have permission to reset warns.
+warns-reset-no-user = ❌ Please specify a user to reset warns.
+warns-limit-set = ✅ Warn limit set to <b>{$limit}</b>.
+warns-limit-usage = ❌ Usage: /setwarnlimit &lt;number&gt;
+warns-limit-invalid = ❌ Warn limit must be between 1 and 100.
+warns-mode-set = ✅ Warn mode set to <b>{$mode}</b>.
+warns-mode-choose = ⚠️ Choose a warn mode:
+warns-mode-invalid = ❌ Invalid mode. Choose: ban, kick, or mute.
+warns-need-admin = ❌ You need to be an admin to use this command.
+warns-remove-last = ✅ Last warning has been removed.
+warns-remove-done = ✅ Last warn removed!
+warns-remove-no-perm = ❌ You don't have permission.
+warns-mode-cb-no-perm = ❌ You need to be an admin.

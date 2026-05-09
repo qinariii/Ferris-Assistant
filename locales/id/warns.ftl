@@ -1,0 +1,24 @@
+## Warns Module - Indonesian
+warns-warn-success = ⚠️ <b>{$name}</b> telah diperingatkan! ({$count}/{$limit})
+warns-warn-reason = 📝 Alasan: {$reason}
+warns-exceeded = ⚠️ <b>{$name}</b> telah di-<b>{$action}</b>! Mencapai {$count}/{$limit} peringatan.
+warns-header = ⚠️ <b>Peringatan ({$count}/{$limit}):</b>
+warns-none = ✅ Pengguna ini tidak memiliki peringatan.
+warns-no-perm = ❌ Kamu tidak memiliki izin untuk memperingatkan pengguna.
+warns-bot-no-restrict = ❌ Saya tidak memiliki izin untuk membatasi anggota. Saya tidak bisa menegakkan tindakan peringatan!
+warns-no-user = ❌ Tentukan pengguna untuk diperingatkan (balas atau berikan ID).
+warns-cant-warn-admin = ❌ Saya tidak bisa memperingatkan admin/sudo user!
+warns-reset-success = ✅ Peringatan telah direset untuk pengguna ini.
+warns-reset-no-perm = ❌ Kamu tidak memiliki izin untuk mereset peringatan.
+warns-reset-no-user = ❌ Tentukan pengguna untuk mereset peringatan.
+warns-limit-set = ✅ Batas peringatan diatur ke <b>{$limit}</b>.
+warns-limit-usage = ❌ Penggunaan: /setwarnlimit &lt;angka&gt;
+warns-limit-invalid = ❌ Batas peringatan harus antara 1 dan 100.
+warns-mode-set = ✅ Mode peringatan diatur ke <b>{$mode}</b>.
+warns-mode-choose = ⚠️ Pilih mode peringatan:
+warns-mode-invalid = ❌ Mode tidak valid. Pilih: ban, kick, atau mute.
+warns-need-admin = ❌ Kamu harus menjadi admin untuk menggunakan perintah ini.
+warns-remove-last = ✅ Peringatan terakhir telah dihapus.
+warns-remove-done = ✅ Peringatan terakhir dihapus!
+warns-remove-no-perm = ❌ Kamu tidak memiliki izin.
+warns-mode-cb-no-perm = ❌ Kamu harus menjadi admin.

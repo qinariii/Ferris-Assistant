@@ -1,0 +1,20 @@
+## Admin Module - English
+admin-promote-success = ✅ <b>{$name}</b> has been promoted!
+admin-promote-usage = ❌ Please specify a user to promote (reply or provide ID).
+admin-promote-failed = ❌ Failed to promote: {$error}
+admin-demote-success = ✅ <b>{$name}</b> has been demoted!
+admin-demote-usage = ❌ Please specify a user to demote (reply or provide ID).
+admin-demote-failed = ❌ Failed to demote: {$error}
+admin-adminlist-header = <b>Admins in {$chat}:</b>
+admin-adminlist-owner = 👑 {$name}
+admin-adminlist-admins = <b>Administrators:</b>
+admin-adminlist-empty = No visible admins found.
+admin-adminlist-failed = ❌ Failed to fetch admin list.
+admin-title-set = ✅ Admin title set to: <b>{$title}</b>
+admin-title-usage = ❌ Please provide a title. Usage: /title &lt;title&gt; (reply to user)
+admin-title-reply = ❌ Reply to a user to set their admin title.
+admin-title-too-long = ❌ Title must be 16 characters or less.
+admin-title-failed = ❌ Failed to set title: {$error}
+admin-no-promote-perm = ❌ You don't have permission to promote/demote users.
+admin-bot-no-promote = ❌ I don't have permission to promote/demote users.
+admin-need-admin = ❌ You need to be an admin to use this command.

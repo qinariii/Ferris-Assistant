@@ -1,0 +1,20 @@
+## Federation Module - English
+feds-created = ✅ Federation created! Name: {$name}, ID: {$id}
+feds-deleted = ✅ Federation <b>{$name}</b> has been deleted.
+feds-not-found = ❌ Federation not found.
+feds-owner-only = ❌ Only the federation owner can do this.
+feds-joined = ✅ This chat has joined federation <b>{$name}</b>!
+feds-left = ✅ This chat has left its federation.
+feds-not-in-fed = ❌ This chat is not in any federation.
+feds-already-in-fed = ❌ This chat is already in a federation. Leave it first with /leavefed.
+feds-already-own = ❌ You already own a federation. Delete it first with /delfed.
+feds-promoted = ✅ User promoted to federation admin.
+feds-demoted = ✅ User demoted from federation admin.
+feds-banned = 🏛 User has been federation banned.
+feds-unbanned = ✅ User has been un-fbanned.
+feds-not-banned = ❌ This user is not fbanned in this federation.
+feds-rules-updated = ✅ Federation rules updated!
+feds-no-rules = 📏 No federation rules have been set.
+feds-cannot-fban-sudo = ❌ I won't fban a sudo user!
+feds-specify-user = ❌ Please specify a user.
+feds-groups-only = ❌ This command is for groups only.

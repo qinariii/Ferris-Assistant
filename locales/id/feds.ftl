@@ -1,0 +1,20 @@
+## Federation Module - Indonesian
+feds-created = ✅ Federasi dibuat! Nama: {$name}, ID: {$id}
+feds-deleted = ✅ Federasi <b>{$name}</b> telah dihapus.
+feds-not-found = ❌ Federasi tidak ditemukan.
+feds-owner-only = ❌ Hanya pemilik federasi yang dapat melakukan ini.
+feds-joined = ✅ Chat ini telah bergabung dengan federasi <b>{$name}</b>!
+feds-left = ✅ Chat ini telah meninggalkan federasinya.
+feds-not-in-fed = ❌ Chat ini tidak berada dalam federasi mana pun.
+feds-already-in-fed = ❌ Chat ini sudah berada dalam federasi. Tinggalkan dulu dengan /leavefed.
+feds-already-own = ❌ Anda sudah memiliki federasi. Hapus dulu dengan /delfed.
+feds-promoted = ✅ Pengguna dipromosikan menjadi admin federasi.
+feds-demoted = ✅ Pengguna diturunkan dari admin federasi.
+feds-banned = 🏛 Pengguna telah di-fban dari federasi.
+feds-unbanned = ✅ Pengguna telah di-unfban.
+feds-not-banned = ❌ Pengguna ini tidak di-fban dalam federasi ini.
+feds-rules-updated = ✅ Aturan federasi diperbarui!
+feds-no-rules = 📏 Belum ada aturan federasi yang ditetapkan.
+feds-cannot-fban-sudo = ❌ Saya tidak akan mem-fban pengguna sudo!
+feds-specify-user = ❌ Silakan tentukan pengguna.
+feds-groups-only = ❌ Perintah ini hanya untuk grup.
