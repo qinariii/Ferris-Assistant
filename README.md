@@ -2,6 +2,8 @@
 
 # 🦀 Ferris Bot
 
+**BETA ALPHA ANY BUGS**
+
 **A powerful, modular Telegram group management bot written in Rust.**
 
 Built on top of [Teloxide](https://github.com/teloxide/teloxide) v0.17, with async I/O powered by Tokio
