@@ -4,7 +4,7 @@ use teloxide::types::{ChatMemberUpdated, ChatPermissions, InlineKeyboardButton, 
 
 use crate::config::AppConfig;
 use crate::db;
-use crate::utils::{formatting, formatting::uid_to_i64, permissions};
+use crate::utils::{formatting, formatting::uid_to_i64, i18n, permissions};
 
 // ---------------------------------------------------------------------------
 // Helper: Safe kick with retry, without arbitrary sleep
@@ -128,8 +128,10 @@ pub async fn captcha_cmd(bot: Bot, msg: Message, pool: db::Pool) -> ResponseResu
         None => return Ok(()),
     };
 
+    let lang = i18n::get_chat_lang(&pool, chat_id.0).await;
+
     if !permissions::is_user_admin(&bot, chat_id, from.id).await {
-        bot.send_message(chat_id, "❌ You need to be an admin to use this command.")
+        bot.send_message(chat_id, i18n::t(&lang, "captcha-need-admin", None))
             .await?;
         return Ok(());
     }
@@ -156,13 +158,14 @@ pub async fn captcha_cmd(bot: Bot, msg: Message, pool: db::Pool) -> ResponseResu
     if args.is_empty() {
         let status = if settings.enabled { "enabled ✅" } else { "disabled ❌" };
         let text = format!(
-            "🔐 <b>Captcha Settings</b>\n\n\
+            "{}\n\n\
             • <b>Status:</b> {}\n\
             • <b>Mode:</b> {}\n\
             • <b>Timeout:</b> {} min\n\
             • <b>Failure action:</b> {}\n\
             • <b>Max attempts:</b> {}\n\n\
             Usage: /captcha &lt;on/off&gt;",
+            i18n::t(&lang, "captcha-settings", None),
             status, settings.captcha_mode, settings.timeout_min,
             settings.failure_action, settings.max_attempts
         );
@@ -175,17 +178,17 @@ pub async fn captcha_cmd(bot: Bot, msg: Message, pool: db::Pool) -> ResponseResu
     match args[0].to_lowercase().as_str() {
         "on" | "enable" | "yes" => {
             db::queries::set_captcha_enabled(&pool, chat_id.0, true).await.ok();
-            bot.send_message(chat_id, "✅ Captcha verification enabled! New members must solve a captcha.")
+            bot.send_message(chat_id, i18n::t(&lang, "captcha-enabled", None))
                 .await?;
         }
         "off" | "disable" | "no" => {
             db::queries::set_captcha_enabled(&pool, chat_id.0, false).await.ok();
             db::queries::delete_all_captcha_attempts(&pool, chat_id.0).await.ok();
-            bot.send_message(chat_id, "❌ Captcha verification disabled.")
+            bot.send_message(chat_id, i18n::t(&lang, "captcha-disabled", None))
                 .await?;
         }
         _ => {
-            bot.send_message(chat_id, "❌ Usage: /captcha <on/off>")
+            bot.send_message(chat_id, i18n::t(&lang, "captcha-usage", None))
                 .await?;
         }
     }
@@ -199,8 +202,10 @@ pub async fn captchamode_cmd(bot: Bot, msg: Message, pool: db::Pool) -> Response
         None => return Ok(()),
     };
 
+    let lang = i18n::get_chat_lang(&pool, chat_id.0).await;
+
     if !permissions::is_user_admin(&bot, chat_id, from.id).await {
-        bot.send_message(chat_id, "❌ You need to be an admin to use this command.")
+        bot.send_message(chat_id, i18n::t(&lang, "captcha-need-admin", None))
             .await?;
         return Ok(());
     }
@@ -214,7 +219,7 @@ pub async fn captchamode_cmd(bot: Bot, msg: Message, pool: db::Pool) -> Response
         .collect();
 
     if args.is_empty() {
-        bot.send_message(chat_id, "❌ Usage: /captchamode <math/text>\n\n• <b>math</b> - Solve a math problem\n• <b>text</b> - Type the shown text")
+        bot.send_message(chat_id, i18n::t(&lang, "captcha-mode-usage", None))
             .parse_mode(ParseMode::Html)
             .await?;
         return Ok(());
@@ -222,13 +227,13 @@ pub async fn captchamode_cmd(bot: Bot, msg: Message, pool: db::Pool) -> Response
 
     let mode = args[0].to_lowercase();
     if mode != "math" && mode != "text" {
-        bot.send_message(chat_id, "❌ Invalid mode. Use: math or text")
+        bot.send_message(chat_id, i18n::t(&lang, "captcha-mode-invalid", None))
             .await?;
         return Ok(());
     }
 
     db::queries::set_captcha_mode(&pool, chat_id.0, &mode).await.ok();
-    bot.send_message(chat_id, format!("✅ Captcha mode set to <b>{}</b>.", mode))
+    bot.send_message(chat_id, i18n::t(&lang, "captcha-mode-set", Some(&[("mode", &mode)])))
         .parse_mode(ParseMode::Html)
         .await?;
     Ok(())
@@ -241,8 +246,10 @@ pub async fn captchatime_cmd(bot: Bot, msg: Message, pool: db::Pool) -> Response
         None => return Ok(()),
     };
 
+    let lang = i18n::get_chat_lang(&pool, chat_id.0).await;
+
     if !permissions::is_user_admin(&bot, chat_id, from.id).await {
-        bot.send_message(chat_id, "❌ You need to be an admin to use this command.")
+        bot.send_message(chat_id, i18n::t(&lang, "captcha-need-admin", None))
             .await?;
         return Ok(());
     }
@@ -256,7 +263,7 @@ pub async fn captchatime_cmd(bot: Bot, msg: Message, pool: db::Pool) -> Response
         .collect();
 
     if args.is_empty() {
-        bot.send_message(chat_id, "❌ Usage: /captchatime <1-10>")
+        bot.send_message(chat_id, i18n::t(&lang, "captcha-timeout-usage", None))
             .await?;
         return Ok(());
     }
@@ -264,14 +271,15 @@ pub async fn captchatime_cmd(bot: Bot, msg: Message, pool: db::Pool) -> Response
     let timeout: i64 = match args[0].parse() {
         Ok(v) if (1..=10).contains(&v) => v,
         _ => {
-            bot.send_message(chat_id, "❌ Timeout must be between 1 and 10 minutes.")
+            bot.send_message(chat_id, i18n::t(&lang, "captcha-timeout-invalid", None))
                 .await?;
             return Ok(());
         }
     };
 
+    let timeout_str = timeout.to_string();
     db::queries::set_captcha_timeout(&pool, chat_id.0, timeout).await.ok();
-    bot.send_message(chat_id, format!("✅ Captcha timeout set to <b>{}</b> minutes.", timeout))
+    bot.send_message(chat_id, i18n::t(&lang, "captcha-timeout-set", Some(&[("timeout", &timeout_str)])))
         .parse_mode(ParseMode::Html)
         .await?;
     Ok(())
@@ -284,8 +292,10 @@ pub async fn captchaaction_cmd(bot: Bot, msg: Message, pool: db::Pool) -> Respon
         None => return Ok(()),
     };
 
+    let lang = i18n::get_chat_lang(&pool, chat_id.0).await;
+
     if !permissions::is_user_admin(&bot, chat_id, from.id).await {
-        bot.send_message(chat_id, "❌ You need to be an admin to use this command.")
+        bot.send_message(chat_id, i18n::t(&lang, "captcha-need-admin", None))
             .await?;
         return Ok(());
     }
@@ -299,20 +309,20 @@ pub async fn captchaaction_cmd(bot: Bot, msg: Message, pool: db::Pool) -> Respon
         .collect();
 
     if args.is_empty() {
-        bot.send_message(chat_id, "❌ Usage: /captchaaction <kick/ban/mute>")
+        bot.send_message(chat_id, i18n::t(&lang, "captcha-action-usage", None))
             .await?;
         return Ok(());
     }
 
     let action = args[0].to_lowercase();
     if !["kick", "ban", "mute"].contains(&action.as_str()) {
-        bot.send_message(chat_id, "❌ Invalid action. Use: kick, ban, or mute")
+        bot.send_message(chat_id, i18n::t(&lang, "captcha-action-invalid", None))
             .await?;
         return Ok(());
     }
 
     db::queries::set_captcha_action(&pool, chat_id.0, &action).await.ok();
-    bot.send_message(chat_id, format!("✅ Captcha failure action set to <b>{}</b>.", action))
+    bot.send_message(chat_id, i18n::t(&lang, "captcha-action-set", Some(&[("action", &action)])))
         .parse_mode(ParseMode::Html)
         .await?;
     Ok(())
@@ -354,33 +364,35 @@ pub async fn send_captcha_on_join(
     let perms = ChatPermissions::empty();
     bot.restrict_chat_member(chat_id, user.id, perms).await.ok();
 
+    let lang = i18n::get_chat_lang(&pool, chat_id.0).await;
+
     let (question_text, answer, options) = if settings.captcha_mode == "text" {
         let (ans, opts) = generate_text_captcha();
         let spaced: String = ans.chars().map(|c| c.to_string()).collect::<Vec<_>>().join(" ");
         (
-            format!("Select the code: <code>{}</code>", spaced),
+            i18n::t(&lang, "captcha-solve-text", Some(&[("code", &spaced)])),
             ans.clone(),
             opts,
         )
     } else {
         let (q, ans, opts) = generate_math_captcha();
         (
-            format!("Solve: <b>{}</b> = ?", q),
+            i18n::t(&lang, "captcha-solve-math", Some(&[("question", &q)])),
             ans,
             opts,
         )
     };
 
     let user_mention = formatting::mention_html(user);
+    let timeout_str = settings.timeout_min.to_string();
+    let attempts_str = settings.max_attempts.to_string();
+    let time_info = i18n::t(&lang, "captcha-time-info", Some(&[("timeout", &timeout_str), ("attempts", &attempts_str)]));
     let text = format!(
-        "🔐 <b>Captcha Verification</b>\n\n\
-        Welcome {}! Please solve this to verify you're human.\n\n\
-        {}\n\n\
-        ⏱ You have <b>{}</b> minute(s). Max <b>{}</b> attempts.",
+        "{}\n\nWelcome {}!\n\n{}\n\n{}",
+        i18n::t(&lang, "captcha-welcome", None),
         user_mention,
         question_text,
-        settings.timeout_min,
-        settings.max_attempts,
+        time_info,
     );
 
     let keyboard = build_captcha_keyboard(&options, uid_to_i64(user.id));
@@ -454,7 +466,7 @@ pub async fn send_captcha_on_join(
                             chat_id,
                             format!(
                                 "⏱ User {} failed to complete captcha in time. Action: <b>{}</b>",
-                                user_id.0, failure_action
+                                user_id.0, &failure_action
                             ),
                         )
                         .parse_mode(ParseMode::Html)
@@ -547,7 +559,7 @@ pub async fn captcha_callback(
     // Only the user in question may respond
     if uid_to_i64(q.from.id) != target_user_id {
         bot.answer_callback_query(q.id.clone())
-            .text("❌ This captcha is not for you!")
+            .text("This captcha is not for you!")
             .await?;
         return Ok(());
     }
@@ -557,27 +569,21 @@ pub async fn captcha_callback(
         Ok(Some(a)) => a,
         _ => {
             bot.answer_callback_query(q.id.clone())
-                .text("❌ No pending captcha found.")
+                .text("No pending captcha found.")
                 .await?;
             return Ok(());
         }
     };
 
+    let lang = i18n::get_chat_lang(&pool, chat_id.0).await;
+
     if chosen_answer == attempt.answer {
         // Correct! Unmute the user by restoring the chat's default permissions.
-        // Do not use ChatPermissions::all() because that would enable
-        // ALL permissions, including those that may have been disabled by the admin
-        // (e.g., send polls, add stickers, etc.).
-        // By restoring the chat's default permissions, the user regains
-        // the same rights as other regular members.
         let default_perms = match bot.get_chat(chat_id).await {
             Ok(chat) => chat
                 .permissions()
-                .cloned()
                 .unwrap_or_else(ChatPermissions::all),
             Err(e) => {
-                // Fall back to all() if the API call fails — it's better for the user
-                // to have too many permissions than to remain muted.
                 log::warn!(
                     "captcha: failed to get chat {} permissions, falling back to all(): {}",
                     chat_id, e
@@ -593,13 +599,14 @@ pub async fn captcha_callback(
         CAPTCHA_CANCEL_MAP.take_and_cancel(&(target_user_id, chat_id.0));
 
         bot.answer_callback_query(q.id.clone())
-            .text("✅ Correct! Welcome!")
+            .text(i18n::t(&lang, "captcha-correct", None))
             .await?;
 
+        let verified_name = formatting::mention_html(&q.from);
         bot.edit_message_text(
             chat_id,
             msg.id(),
-            format!("✅ {} has been verified!", formatting::mention_html(&q.from)),
+            i18n::t(&lang, "captcha-verified", Some(&[("name", &verified_name)])),
         )
         .parse_mode(ParseMode::Html)
         .await
@@ -608,6 +615,22 @@ pub async fn captcha_callback(
         db::queries::delete_captcha_attempt(&pool, target_user_id, chat_id.0)
             .await
             .ok();
+
+        // Send welcome message after captcha is solved
+        let chat_name = match bot.get_chat(chat_id).await {
+            Ok(c) => c.title().unwrap_or("this chat").to_string(),
+            Err(_) => "this chat".to_string(),
+        };
+        let chat_data = db::queries::get_chat(&pool, chat_id.0).await.ok().flatten();
+        if let Some(chat) = chat_data {
+            if chat.welcome_enabled {
+                let welcome_text = formatting::format_greeting(&chat.welcome_text, &q.from, &chat_name);
+                bot.send_message(chat_id, welcome_text)
+                    .parse_mode(ParseMode::Html)
+                    .await
+                    .ok();
+            }
+        }
     } else {
         // Jawaban salah
         let settings = db::queries::get_captcha_settings(&pool, chat_id.0)
@@ -646,16 +669,14 @@ pub async fn captcha_callback(
             }
 
             bot.answer_callback_query(q.id.clone())
-                .text("❌ Too many wrong attempts!")
+                .text(i18n::t(&lang, "captcha-wrong-max", None))
                 .await?;
 
+            let max_str = settings.max_attempts.to_string();
             bot.edit_message_text(
                 chat_id,
                 msg.id(),
-                format!(
-                    "❌ User failed captcha after {} attempts. Action: <b>{}</b>",
-                    settings.max_attempts, settings.failure_action
-                ),
+                i18n::t(&lang, "captcha-failed-attempts", Some(&[("max", &max_str), ("action", &settings.failure_action)])),
             )
             .parse_mode(ParseMode::Html)
             .await
@@ -666,11 +687,9 @@ pub async fn captcha_callback(
                 .ok();
         } else {
             let remaining = settings.max_attempts - current;
+            let remaining_str = remaining.to_string();
             bot.answer_callback_query(q.id.clone())
-                .text(format!(
-                    "❌ Wrong! {} attempt(s) remaining.",
-                    remaining
-                ))
+                .text(i18n::t(&lang, "captcha-wrong-answer", Some(&[("remaining", &remaining_str)])))
                 .await?;
         }
     }

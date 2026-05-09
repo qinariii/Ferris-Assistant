@@ -5,7 +5,7 @@ use teloxide::types::{ChatMemberUpdated, Message, Update};
 
 use crate::config::AppConfig;
 use crate::db;
-use crate::utils::LogErrExt;
+use crate::utils::{formatting, i18n, permissions, LogErrExt};
 use crate::modules::{
     admin, afk, antiflood, antispam, backups, bans, blacklist, blstickers, captcha, chatpermissions,
     cleaner, connections, devs, disable, feds, filters, gbans, help, locks, log_channel, mutes, notes,
@@ -15,6 +15,30 @@ use crate::modules::{
 pub fn build_handler() -> UpdateHandler<teloxide::RequestError> {
     let command_handler = Update::filter_message()
         .filter_command::<Command>()
+        // Intercept disabled commands before dispatching
+        .branch(
+            dptree::filter_async(|msg: Message, pool: db::Pool| async move {
+                if msg.chat.is_private() {
+                    return false;
+                }
+                let text = msg.text().unwrap_or("");
+                let cmd = text
+                    .split_whitespace()
+                    .next()
+                    .unwrap_or("")
+                    .trim_start_matches('/')
+                    .split('@')
+                    .next()
+                    .unwrap_or("")
+                    .to_lowercase();
+                disable::is_disabled(&pool, msg.chat.id.0, &cmd).await
+            })
+            .endpoint(|bot: Bot, msg: Message| async move {
+                bot.send_message(msg.chat.id, "❌ This command is disabled in this chat.")
+                    .await?;
+                respond(())
+            }),
+        )
         .branch(dptree::case![Command::Start].endpoint(start::start))
         .branch(dptree::case![Command::Help].endpoint(help::help_command))
         // Admin
@@ -596,8 +620,8 @@ async fn handle_callback(bot: Bot, q: CallbackQuery, cfg: AppConfig, pool: db::P
             handle_lang_callback(bot, q, pool).await?;
         }
 
-        // Welcome/Goodbye toggles
-        "welcome_toggle" | "set_welcome" => {
+        // Welcome/Goodbye settings panels
+        "set_welcome" => {
             let msg = match q.message {
                 Some(ref m) => m.clone(),
                 None => return Ok(()),
@@ -610,6 +634,47 @@ async fn handle_callback(bot: Bot, q: CallbackQuery, cfg: AppConfig, pool: db::P
                 .await?;
             bot.answer_callback_query(q.id.clone()).await?;
         }
+        "welcome_toggle" => {
+            let msg = match q.message {
+                Some(ref m) => m.clone(),
+                None => return Ok(()),
+            };
+            let chat_id = msg.chat().id;
+            if !permissions::is_user_admin(&bot, chat_id, q.from.id).await {
+                bot.answer_callback_query(q.id.clone()).text("❌ Admin only").await?;
+                return Ok(());
+            }
+            let chat_data = db::queries::get_chat(&pool, chat_id.0).await.ok().flatten();
+            let currently_enabled = chat_data.map(|c| c.welcome_enabled).unwrap_or(true);
+            let new_state = !currently_enabled;
+            db::queries::toggle_welcome(&pool, chat_id.0, new_state).await.ok();
+            bot.edit_message_text(chat_id, msg.id(), "👋 <b>Welcome Settings</b>")
+                .parse_mode(teloxide::types::ParseMode::Html)
+                .reply_markup(crate::keyboards::inline::welcome_settings_keyboard(new_state))
+                .await?;
+            bot.answer_callback_query(q.id.clone()).await?;
+        }
+        "welcome_set" => {
+            bot.answer_callback_query(q.id.clone())
+                .text("Use /setwelcome <text> to set the welcome message.")
+                .await?;
+        }
+        "welcome_preview" => {
+            let msg = match q.message {
+                Some(ref m) => m.clone(),
+                None => return Ok(()),
+            };
+            let chat_id = msg.chat().id;
+            let chat_data = db::queries::get_chat(&pool, chat_id.0).await.ok().flatten();
+            if let Some(chat) = chat_data {
+                let chat_name = msg.chat().title().unwrap_or("this chat");
+                let preview = formatting::format_greeting(&chat.welcome_text, &q.from, chat_name);
+                bot.send_message(chat_id, preview)
+                    .parse_mode(teloxide::types::ParseMode::Html)
+                    .await?;
+            }
+            bot.answer_callback_query(q.id.clone()).await?;
+        }
         "set_goodbye" => {
             let msg = match q.message {
                 Some(ref m) => m.clone(),
@@ -620,6 +685,58 @@ async fn handle_callback(bot: Bot, q: CallbackQuery, cfg: AppConfig, pool: db::P
             bot.edit_message_text(msg.chat().id, msg.id(), "👋 <b>Goodbye Settings</b>")
                 .parse_mode(teloxide::types::ParseMode::Html)
                 .reply_markup(crate::keyboards::inline::goodbye_settings_keyboard(enabled))
+                .await?;
+            bot.answer_callback_query(q.id.clone()).await?;
+        }
+        "goodbye_toggle" => {
+            let msg = match q.message {
+                Some(ref m) => m.clone(),
+                None => return Ok(()),
+            };
+            let chat_id = msg.chat().id;
+            if !permissions::is_user_admin(&bot, chat_id, q.from.id).await {
+                bot.answer_callback_query(q.id.clone()).text("❌ Admin only").await?;
+                return Ok(());
+            }
+            let chat_data = db::queries::get_chat(&pool, chat_id.0).await.ok().flatten();
+            let currently_enabled = chat_data.map(|c| c.goodbye_enabled).unwrap_or(true);
+            let new_state = !currently_enabled;
+            db::queries::toggle_goodbye(&pool, chat_id.0, new_state).await.ok();
+            bot.edit_message_text(chat_id, msg.id(), "👋 <b>Goodbye Settings</b>")
+                .parse_mode(teloxide::types::ParseMode::Html)
+                .reply_markup(crate::keyboards::inline::goodbye_settings_keyboard(new_state))
+                .await?;
+            bot.answer_callback_query(q.id.clone()).await?;
+        }
+        "goodbye_set" => {
+            bot.answer_callback_query(q.id.clone())
+                .text("Use /setgoodbye <text> to set the goodbye message.")
+                .await?;
+        }
+        "goodbye_preview" => {
+            let msg = match q.message {
+                Some(ref m) => m.clone(),
+                None => return Ok(()),
+            };
+            let chat_id = msg.chat().id;
+            let chat_data = db::queries::get_chat(&pool, chat_id.0).await.ok().flatten();
+            if let Some(chat) = chat_data {
+                let chat_name = msg.chat().title().unwrap_or("this chat");
+                let preview = formatting::format_greeting(&chat.goodbye_text, &q.from, chat_name);
+                bot.send_message(chat_id, preview)
+                    .parse_mode(teloxide::types::ParseMode::Html)
+                    .await?;
+            }
+            bot.answer_callback_query(q.id.clone()).await?;
+        }
+        "set_blacklist" => {
+            let msg = match q.message {
+                Some(ref m) => m.clone(),
+                None => return Ok(()),
+            };
+            bot.edit_message_text(msg.chat().id, msg.id(), "🚫 <b>Blacklist Settings</b>\n\nUse commands:\n/blacklist - View blacklisted words\n/addblacklist <word> - Add to blacklist\n/rmblacklist <word> - Remove\n/blacklistmode <mode> - Set action")
+                .parse_mode(teloxide::types::ParseMode::Html)
+                .reply_markup(crate::keyboards::inline::back_to_help_keyboard())
                 .await?;
             bot.answer_callback_query(q.id.clone()).await?;
         }
@@ -673,9 +790,25 @@ async fn handle_chat_member(
     let old = &update.old_chat_member;
 
     if !old.is_present() && new.is_present() {
-        // New member joined — send captcha if enabled
-        captcha::send_captcha_on_join(bot.clone(), &update, pool.clone()).await.log_err("captcha::send_on_join");
-        welcome::welcome_new_member(bot, update, pool).await?;
+        // New member joined — send captcha if enabled, skip welcome if captcha active
+        let captcha_settings = db::queries::get_captcha_settings(&pool, update.chat.id.0)
+            .await
+            .unwrap_or_else(|_| db::models::CaptchaSettings {
+                chat_id: update.chat.id.0,
+                enabled: false,
+                captcha_mode: "math".to_string(),
+                timeout_min: 5,
+                failure_action: "kick".to_string(),
+                max_attempts: 3,
+            });
+
+        if captcha_settings.enabled {
+            captcha::send_captcha_on_join(bot.clone(), &update, pool.clone())
+                .await
+                .log_err("captcha::send_on_join");
+        } else {
+            welcome::welcome_new_member(bot, update, pool).await?;
+        }
     } else if old.is_present() && !new.is_present() {
         // Member left
         welcome::goodbye_member(bot, update, pool).await?;

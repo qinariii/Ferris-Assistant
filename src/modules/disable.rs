@@ -137,7 +137,6 @@ pub async fn disabled_list(bot: Bot, msg: Message, pool: db::Pool) -> ResponseRe
 }
 
 /// Check if a command is disabled in the current chat
-#[allow(dead_code)]
 pub async fn is_disabled(pool: &db::Pool, chat_id: i64, command: &str) -> bool {
     db::queries::is_command_disabled(pool, chat_id, command)
         .await

@@ -11,6 +11,22 @@ use crate::config::AppConfig;
 use crate::db;
 use crate::utils::{cache::TtlCache, formatting, i18n, permissions, LogErrExt};
 
+/// Kick user: ban and then unban using exponential backoff.
+async fn safe_kick(bot: &Bot, chat_id: ChatId, user_id: UserId) {
+    if bot.ban_chat_member(chat_id, user_id).await.is_err() {
+        return;
+    }
+    for attempt in 0u32..3 {
+        match bot.unban_chat_member(chat_id, user_id).await {
+            Ok(_) => return,
+            Err(_) => {
+                let delay = tokio::time::Duration::from_millis(200 * (1u64 << attempt));
+                tokio::time::sleep(delay).await;
+            }
+        }
+    }
+}
+
 // flood settings cache: chat_id -> (limit, mode), refreshed every 30s
 static FLOOD_SETTINGS_CACHE: Lazy<Arc<TtlCache<i64, (i32, String)>>> =
     Lazy::new(|| TtlCache::new(Duration::from_secs(30)));
@@ -255,9 +271,7 @@ pub async fn check_flood(
                 .await?;
             }
             "kick" => {
-                bot.ban_chat_member(chat_id, from.id).await.ok();
-                tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-                bot.unban_chat_member(chat_id, from.id).await.ok();
+                safe_kick(&bot, chat_id, from.id).await;
                 bot.send_message(
                     chat_id,
                     i18n::t(&lang, "antiflood-triggered-kick", Some(&[("name", &name)])),

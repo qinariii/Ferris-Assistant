@@ -114,7 +114,6 @@ pub fn invalidate_chat_perms(chat_id: ChatId) {
 }
 
 /// Invalidate cached permissions for a specific user in a chat.
-#[allow(dead_code)]
 pub fn invalidate_user_perms(chat_id: ChatId, user_id: UserId) {
     PERMS_CACHE.invalidate(&(chat_id.0, user_id.0));
 }
