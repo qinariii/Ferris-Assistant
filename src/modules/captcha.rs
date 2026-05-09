@@ -6,6 +6,31 @@ use crate::config::AppConfig;
 use crate::db;
 use crate::utils::{formatting, formatting::uid_to_i64, permissions};
 
+// ---------------------------------------------------------------------------
+// Helper: kick aman dengan retry, tanpa sleep arbitrary
+// ---------------------------------------------------------------------------
+
+/// Kick user: ban lalu unban dengan retry eksponensial.
+/// Menggantikan pola `ban -> sleep(1s) -> unban` yang rawan race condition.
+async fn safe_kick(bot: &Bot, chat_id: ChatId, user_id: UserId) {
+    if bot.ban_chat_member(chat_id, user_id).await.is_err() {
+        return;
+    }
+    for attempt in 0u32..3 {
+        match bot.unban_chat_member(chat_id, user_id).await {
+            Ok(_) => return,
+            Err(_) => {
+                let delay = tokio::time::Duration::from_millis(200 * (1u64 << attempt));
+                tokio::time::sleep(delay).await;
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Captcha generators
+// ---------------------------------------------------------------------------
+
 fn generate_math_captcha() -> (String, String, Vec<String>) {
     let mut rng = rand::thread_rng();
     let ops = ['+', '-', '*'];
@@ -33,7 +58,6 @@ fn generate_math_captcha() -> (String, String, Vec<String>) {
     let op_display = if op == '*' { 'x' } else { op };
     let question = format!("{} {} {}", a, op_display, b);
 
-    // Generate 3 wrong answers + correct
     let mut options: Vec<String> = vec![answer.to_string()];
     while options.len() < 4 {
         let wrong = answer + rng.gen_range(-10..=10);
@@ -45,7 +69,6 @@ fn generate_math_captcha() -> (String, String, Vec<String>) {
         }
     }
 
-    // Shuffle
     for i in (1..options.len()).rev() {
         let j = rng.gen_range(0..=i);
         options.swap(i, j);
@@ -93,6 +116,10 @@ fn build_captcha_keyboard(options: &[String], user_id: i64) -> InlineKeyboardMar
         .collect();
     InlineKeyboardMarkup::new(buttons)
 }
+
+// ---------------------------------------------------------------------------
+// Command handlers
+// ---------------------------------------------------------------------------
 
 pub async fn captcha_cmd(bot: Bot, msg: Message, pool: db::Pool) -> ResponseResult<()> {
     let chat_id = msg.chat.id;
@@ -291,6 +318,10 @@ pub async fn captchaaction_cmd(bot: Bot, msg: Message, pool: db::Pool) -> Respon
     Ok(())
 }
 
+// ---------------------------------------------------------------------------
+// Join handler — kirim captcha ke member baru
+// ---------------------------------------------------------------------------
+
 /// Send captcha to a new member. Called from the chat_member handler.
 pub async fn send_captcha_on_join(
     bot: Bot,
@@ -319,7 +350,7 @@ pub async fn send_captcha_on_join(
         return Ok(());
     }
 
-    // Mute user until captcha solved
+    // Mute user sampai captcha selesai
     let perms = ChatPermissions::empty();
     bot.restrict_chat_member(chat_id, user.id, perms).await.ok();
 
@@ -360,7 +391,7 @@ pub async fn send_captcha_on_join(
         .reply_markup(keyboard)
         .await?;
 
-    // Store attempt in DB
+    // Simpan attempt ke DB
     let expires = chrono::Utc::now()
         + chrono::Duration::minutes(settings.timeout_min);
     db::queries::create_captcha_attempt(
@@ -374,7 +405,15 @@ pub async fn send_captcha_on_join(
     .await
     .ok();
 
-    // Spawn timeout task
+    // FIX: Gunakan oneshot channel agar timeout task bisa dibatalkan
+    // saat user berhasil menjawab captcha sebelum timeout.
+    let (cancel_tx, cancel_rx) = tokio::sync::oneshot::channel::<()>();
+
+    // Simpan cancel_tx ke DB agar bisa di-trigger dari captcha_callback.
+    // Karena oneshot::Sender tidak bisa disimpan ke SQLite, kita pakai
+    // in-memory cache (DashMap/Mutex) yang disimpan sebagai static global.
+    CAPTCHA_CANCEL_MAP.insert((uid_to_i64(user.id), chat_id.0), cancel_tx);
+
     let bot_clone = bot.clone();
     let pool_clone = pool.clone();
     let user_id = user.id;
@@ -383,50 +422,104 @@ pub async fn send_captcha_on_join(
     let msg_id = sent.id;
 
     tokio::spawn(async move {
-        tokio::time::sleep(tokio::time::Duration::from_secs(timeout_min as u64 * 60)).await;
+        let sleep = tokio::time::sleep(tokio::time::Duration::from_secs(timeout_min as u64 * 60));
+        tokio::pin!(sleep);
 
-        // Check if attempt still exists (user hasn't solved it)
-        if let Ok(Some(_attempt)) =
-            db::queries::get_captcha_attempt(&pool_clone, uid_to_i64(user_id), chat_id.0).await
-        {
-            // Apply failure action
-            match failure_action.as_str() {
-                "ban" => {
-                    bot_clone.ban_chat_member(chat_id, user_id).await.ok();
-                }
-                "mute" => {
-                    // Already muted, just inform
-                }
-                _ => {
-                    // kick
-                    bot_clone.ban_chat_member(chat_id, user_id).await.ok();
-                    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-                    bot_clone.unban_chat_member(chat_id, user_id).await.ok();
-                }
+        tokio::select! {
+            // FIX: Task dibatalkan jika user berhasil menjawab
+            _ = cancel_rx => {
+                log::debug!("captcha timeout task cancelled for user {}", user_id.0);
+                return;
             }
+            _ = &mut sleep => {
+                // Cek apakah attempt masih ada (user belum menjawab)
+                if let Ok(Some(_attempt)) =
+                    db::queries::get_captcha_attempt(&pool_clone, uid_to_i64(user_id), chat_id.0).await
+                {
+                    // FIX: Gunakan safe_kick menggantikan ban -> sleep(1) -> unban
+                    match failure_action.as_str() {
+                        "ban" => {
+                            bot_clone.ban_chat_member(chat_id, user_id).await.ok();
+                        }
+                        "mute" => {
+                            // User sudah di-mute sejak awal, tidak perlu aksi tambahan
+                        }
+                        _ => {
+                            safe_kick(&bot_clone, chat_id, user_id).await;
+                        }
+                    }
 
-            bot_clone
-                .send_message(
-                    chat_id,
-                    format!(
-                        "⏱ User {} failed to complete captcha in time. Action: <b>{}</b>",
-                        user_id.0, failure_action
-                    ),
-                )
-                .parse_mode(ParseMode::Html)
-                .await
-                .ok();
+                    bot_clone
+                        .send_message(
+                            chat_id,
+                            format!(
+                                "⏱ User {} failed to complete captcha in time. Action: <b>{}</b>",
+                                user_id.0, failure_action
+                            ),
+                        )
+                        .parse_mode(ParseMode::Html)
+                        .await
+                        .ok();
 
-            // Cleanup
-            db::queries::delete_captcha_attempt(&pool_clone, uid_to_i64(user_id), chat_id.0)
-                .await
-                .ok();
-            bot_clone.delete_message(chat_id, msg_id).await.ok();
+                    // Cleanup
+                    db::queries::delete_captcha_attempt(&pool_clone, uid_to_i64(user_id), chat_id.0)
+                        .await
+                        .ok();
+                    bot_clone.delete_message(chat_id, msg_id).await.ok();
+                }
+
+                // Hapus entry dari cancel map
+                CAPTCHA_CANCEL_MAP.remove(&(uid_to_i64(user_id), chat_id.0));
+            }
         }
     });
 
     Ok(())
 }
+
+// ---------------------------------------------------------------------------
+// In-memory map untuk menyimpan cancel sender per (user_id, chat_id)
+// ---------------------------------------------------------------------------
+
+use once_cell::sync::Lazy;
+use std::collections::HashMap;
+use parking_lot::Mutex;
+
+type CancelKey = (i64, i64);
+type CancelSender = tokio::sync::oneshot::Sender<()>;
+
+static CAPTCHA_CANCEL_MAP: Lazy<CaptchaCancelMap> = Lazy::new(CaptchaCancelMap::new);
+
+struct CaptchaCancelMap {
+    inner: Mutex<HashMap<CancelKey, CancelSender>>,
+}
+
+impl CaptchaCancelMap {
+    fn new() -> Self {
+        Self {
+            inner: Mutex::new(HashMap::new()),
+        }
+    }
+
+    fn insert(&self, key: CancelKey, tx: CancelSender) {
+        self.inner.lock().insert(key, tx);
+    }
+
+    /// Ambil dan hapus sender — mengirim () akan membatalkan task timeout.
+    fn take_and_cancel(&self, key: &CancelKey) {
+        if let Some(tx) = self.inner.lock().remove(key) {
+            let _ = tx.send(());
+        }
+    }
+
+    fn remove(&self, key: &CancelKey) {
+        self.inner.lock().remove(key);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Callback handler
+// ---------------------------------------------------------------------------
 
 pub async fn captcha_callback(
     bot: Bot,
@@ -451,7 +544,7 @@ pub async fn captcha_callback(
     };
     let chosen_answer = parts[2];
 
-    // Only the target user can answer
+    // Hanya user yang bersangkutan yang boleh menjawab
     if uid_to_i64(q.from.id) != target_user_id {
         bot.answer_callback_query(q.id.clone())
             .text("❌ This captcha is not for you!")
@@ -471,11 +564,14 @@ pub async fn captcha_callback(
     };
 
     if chosen_answer == attempt.answer {
-        // Correct! Unmute user
+        // Benar! Unmute user dan batalkan timeout task
         let all_perms = ChatPermissions::all();
         bot.restrict_chat_member(chat_id, UserId(target_user_id as u64), all_perms)
             .await
             .ok();
+
+        // FIX: Batalkan timeout task agar tidak kick user yang sudah lulus
+        CAPTCHA_CANCEL_MAP.take_and_cancel(&(target_user_id, chat_id.0));
 
         bot.answer_callback_query(q.id.clone())
             .text("✅ Correct! Welcome!")
@@ -494,7 +590,7 @@ pub async fn captcha_callback(
             .await
             .ok();
     } else {
-        // Wrong answer
+        // Jawaban salah
         let settings = db::queries::get_captcha_settings(&pool, chat_id.0)
             .await
             .unwrap_or_else(|_| db::models::CaptchaSettings {
@@ -511,7 +607,11 @@ pub async fn captcha_callback(
             .unwrap_or(0);
 
         if current >= settings.max_attempts {
-            // Max attempts reached
+            // Batas percobaan habis
+            // FIX: Batalkan timeout task sebelum eksekusi aksi
+            CAPTCHA_CANCEL_MAP.take_and_cancel(&(target_user_id, chat_id.0));
+
+            // FIX: Gunakan safe_kick menggantikan ban -> sleep(1) -> unban
             match settings.failure_action.as_str() {
                 "ban" => {
                     bot.ban_chat_member(chat_id, UserId(target_user_id as u64))
@@ -519,16 +619,10 @@ pub async fn captcha_callback(
                         .ok();
                 }
                 "mute" => {
-                    // Already muted
+                    // User sudah di-mute
                 }
                 _ => {
-                    bot.ban_chat_member(chat_id, UserId(target_user_id as u64))
-                        .await
-                        .ok();
-                    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-                    bot.unban_chat_member(chat_id, UserId(target_user_id as u64))
-                        .await
-                        .ok();
+                    safe_kick(&bot, chat_id, UserId(target_user_id as u64)).await;
                 }
             }
 
