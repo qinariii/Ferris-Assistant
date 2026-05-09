@@ -7,11 +7,11 @@ use crate::db;
 use crate::utils::{formatting, formatting::uid_to_i64, permissions};
 
 // ---------------------------------------------------------------------------
-// Helper: kick aman dengan retry, tanpa sleep arbitrary
+// Helper: Safe kick with retry, without arbitrary sleep
 // ---------------------------------------------------------------------------
 
-/// Kick user: ban lalu unban dengan retry eksponensial.
-/// Menggantikan pola `ban -> sleep(1s) -> unban` yang rawan race condition.
+/// Kick user: ban and then unban using exponential backoff.
+/// Replaces the `ban -> sleep(1s) -> unban` pattern, which is prone to race conditions.
 async fn safe_kick(bot: &Bot, chat_id: ChatId, user_id: UserId) {
     if bot.ban_chat_member(chat_id, user_id).await.is_err() {
         return;
@@ -319,7 +319,7 @@ pub async fn captchaaction_cmd(bot: Bot, msg: Message, pool: db::Pool) -> Respon
 }
 
 // ---------------------------------------------------------------------------
-// Join handler — kirim captcha ke member baru
+// Join handler — Send a CAPTCHA to new members
 // ---------------------------------------------------------------------------
 
 /// Send captcha to a new member. Called from the chat_member handler.
@@ -350,7 +350,7 @@ pub async fn send_captcha_on_join(
         return Ok(());
     }
 
-    // Mute user sampai captcha selesai
+    // Mute the user until the CAPTCHA is completed
     let perms = ChatPermissions::empty();
     bot.restrict_chat_member(chat_id, user.id, perms).await.ok();
 
@@ -391,7 +391,7 @@ pub async fn send_captcha_on_join(
         .reply_markup(keyboard)
         .await?;
 
-    // Simpan attempt ke DB
+    // Save the attempt to the database
     let expires = chrono::Utc::now()
         + chrono::Duration::minutes(settings.timeout_min);
     db::queries::create_captcha_attempt(
@@ -405,13 +405,13 @@ pub async fn send_captcha_on_join(
     .await
     .ok();
 
-    // FIX: Gunakan oneshot channel agar timeout task bisa dibatalkan
-    // saat user berhasil menjawab captcha sebelum timeout.
+    // FIX: Use a one-shot channel so that the task timeout can be canceled
+    // when the user successfully solves the CAPTCHA before the timeout.
     let (cancel_tx, cancel_rx) = tokio::sync::oneshot::channel::<()>();
 
-    // Simpan cancel_tx ke DB agar bisa di-trigger dari captcha_callback.
-    // Karena oneshot::Sender tidak bisa disimpan ke SQLite, kita pakai
-    // in-memory cache (DashMap/Mutex) yang disimpan sebagai static global.
+    // Store `cancel_tx` in the database so it can be triggered from `captcha_callback`.
+    // Since `oneshot::Sender` cannot be stored in SQLite, we use
+    // an in-memory cache (DashMap/Mutex) stored as a static global.
     CAPTCHA_CANCEL_MAP.insert((uid_to_i64(user.id), chat_id.0), cancel_tx);
 
     let bot_clone = bot.clone();
@@ -426,23 +426,23 @@ pub async fn send_captcha_on_join(
         tokio::pin!(sleep);
 
         tokio::select! {
-            // FIX: Task dibatalkan jika user berhasil menjawab
+            // FIX: The task is canceled if the user answers correctly
             _ = cancel_rx => {
                 log::debug!("captcha timeout task cancelled for user {}", user_id.0);
                 return;
             }
             _ = &mut sleep => {
-                // Cek apakah attempt masih ada (user belum menjawab)
+                // Check if the attempt is still active (the user hasn't responded yet)
                 if let Ok(Some(_attempt)) =
                     db::queries::get_captcha_attempt(&pool_clone, uid_to_i64(user_id), chat_id.0).await
                 {
-                    // FIX: Gunakan safe_kick menggantikan ban -> sleep(1) -> unban
+                    // FIX: Use `safe_kick` instead of `ban` -> `sleep(1)` -> `unban`
                     match failure_action.as_str() {
                         "ban" => {
                             bot_clone.ban_chat_member(chat_id, user_id).await.ok();
                         }
                         "mute" => {
-                            // User sudah di-mute sejak awal, tidak perlu aksi tambahan
+                            // The user has been muted from the start; no further action is needed
                         }
                         _ => {
                             safe_kick(&bot_clone, chat_id, user_id).await;
@@ -468,7 +468,7 @@ pub async fn send_captcha_on_join(
                     bot_clone.delete_message(chat_id, msg_id).await.ok();
                 }
 
-                // Hapus entry dari cancel map
+                // Delete the entry from the cancellation list
                 CAPTCHA_CANCEL_MAP.remove(&(uid_to_i64(user_id), chat_id.0));
             }
         }
@@ -478,7 +478,7 @@ pub async fn send_captcha_on_join(
 }
 
 // ---------------------------------------------------------------------------
-// In-memory map untuk menyimpan cancel sender per (user_id, chat_id)
+// In-memory map to store cancel senders by (user_id, chat_id)
 // ---------------------------------------------------------------------------
 
 use once_cell::sync::Lazy;
@@ -505,7 +505,7 @@ impl CaptchaCancelMap {
         self.inner.lock().insert(key, tx);
     }
 
-    /// Ambil dan hapus sender — mengirim () akan membatalkan task timeout.
+    /// Retrieve and remove the sender — calling `send()` will cancel the task timeout.
     fn take_and_cancel(&self, key: &CancelKey) {
         if let Some(tx) = self.inner.lock().remove(key) {
             let _ = tx.send(());
@@ -544,7 +544,7 @@ pub async fn captcha_callback(
     };
     let chosen_answer = parts[2];
 
-    // Hanya user yang bersangkutan yang boleh menjawab
+    // Only the user in question may respond
     if uid_to_i64(q.from.id) != target_user_id {
         bot.answer_callback_query(q.id.clone())
             .text("❌ This captcha is not for you!")
@@ -564,9 +564,28 @@ pub async fn captcha_callback(
     };
 
     if chosen_answer == attempt.answer {
-        // Benar! Unmute user dan batalkan timeout task
-        let all_perms = ChatPermissions::all();
-        bot.restrict_chat_member(chat_id, UserId(target_user_id as u64), all_perms)
+        // Correct! Unmute the user by restoring the chat's default permissions.
+        // Do not use ChatPermissions::all() because that would enable
+        // ALL permissions, including those that may have been disabled by the admin
+        // (e.g., send polls, add stickers, etc.).
+        // By restoring the chat's default permissions, the user regains
+        // the same rights as other regular members.
+        let default_perms = match bot.get_chat(chat_id).await {
+            Ok(chat) => chat
+                .permissions()
+                .cloned()
+                .unwrap_or_else(ChatPermissions::all),
+            Err(e) => {
+                // Fall back to all() if the API call fails — it's better for the user
+                // to have too many permissions than to remain muted.
+                log::warn!(
+                    "captcha: failed to get chat {} permissions, falling back to all(): {}",
+                    chat_id, e
+                );
+                ChatPermissions::all()
+            }
+        };
+        bot.restrict_chat_member(chat_id, UserId(target_user_id as u64), default_perms)
             .await
             .ok();
 
@@ -607,11 +626,11 @@ pub async fn captcha_callback(
             .unwrap_or(0);
 
         if current >= settings.max_attempts {
-            // Batas percobaan habis
-            // FIX: Batalkan timeout task sebelum eksekusi aksi
+            // Trial limit reached
+            // FIX: Cancel the task timeout before executing the action
             CAPTCHA_CANCEL_MAP.take_and_cancel(&(target_user_id, chat_id.0));
 
-            // FIX: Gunakan safe_kick menggantikan ban -> sleep(1) -> unban
+            // FIX: Use `safe_kick` instead of `ban` -> `sleep(1)` -> `unban`
             match settings.failure_action.as_str() {
                 "ban" => {
                     bot.ban_chat_member(chat_id, UserId(target_user_id as u64))
@@ -619,7 +638,7 @@ pub async fn captcha_callback(
                         .ok();
                 }
                 "mute" => {
-                    // User sudah di-mute
+                    // user has been muted
                 }
                 _ => {
                     safe_kick(&bot, chat_id, UserId(target_user_id as u64)).await;
