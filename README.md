@@ -1,6 +1,6 @@
 <div align="center">
 
-# Ferris Assistant
+# 🦀Ferris Assistant
 
 **A high-performance Telegram group management bot built in Rust.**
 
