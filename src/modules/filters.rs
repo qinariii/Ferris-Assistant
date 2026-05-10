@@ -185,7 +185,7 @@ pub async fn stopall(bot: Bot, msg: Message, pool: db::Pool) -> ResponseResult<(
 /// Handle incoming messages for filter matching
 pub async fn check_filters(bot: Bot, msg: Message, pool: db::Pool) -> ResponseResult<()> {
     let chat_id = msg.chat.id;
-    let text = msg.text().unwrap_or("").to_lowercase();
+    let text = msg.text().or_else(|| msg.caption()).unwrap_or("").to_lowercase();
 
     if text.is_empty() || text.starts_with('/') {
         return Ok(());

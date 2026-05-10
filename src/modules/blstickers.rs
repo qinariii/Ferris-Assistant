@@ -6,7 +6,7 @@ use teloxide::prelude::*;
 use teloxide::types::ParseMode;
 
 use crate::db;
-use crate::utils::{cache::TtlCache, formatting, permissions};
+use crate::utils::{cache::TtlCache, formatting, kick::safe_kick, permissions};
 
 static BLSTICKER_CACHE: Lazy<Arc<TtlCache<i64, Vec<String>>>> =
     Lazy::new(|| TtlCache::new(Duration::from_secs(30)));
@@ -304,9 +304,7 @@ pub async fn check_blacklist_sticker(bot: Bot, msg: Message, pool: db::Pool) -> 
         4 => {
             // kick
             bot.delete_message(chat_id, msg.id).await.ok();
-            bot.ban_chat_member(chat_id, from.id).await.ok();
-            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-            bot.unban_chat_member(chat_id, from.id).await.ok();
+            safe_kick(&bot, chat_id, from.id).await.ok();
             bot.send_message(
                 chat_id,
                 format!(

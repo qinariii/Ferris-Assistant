@@ -9,23 +9,7 @@ use teloxide::types::{ChatPermissions, ParseMode};
 
 use crate::config::AppConfig;
 use crate::db;
-use crate::utils::{cache::TtlCache, formatting, i18n, permissions, LogErrExt};
-
-/// Kick user: ban and then unban using exponential backoff.
-async fn safe_kick(bot: &Bot, chat_id: ChatId, user_id: UserId) {
-    if bot.ban_chat_member(chat_id, user_id).await.is_err() {
-        return;
-    }
-    for attempt in 0u32..3 {
-        match bot.unban_chat_member(chat_id, user_id).await {
-            Ok(_) => return,
-            Err(_) => {
-                let delay = tokio::time::Duration::from_millis(200 * (1u64 << attempt));
-                tokio::time::sleep(delay).await;
-            }
-        }
-    }
-}
+use crate::utils::{cache::TtlCache, formatting, i18n, kick::safe_kick, permissions, LogErrExt};
 
 // flood settings cache: chat_id -> (limit, mode), refreshed every 30s
 static FLOOD_SETTINGS_CACHE: Lazy<Arc<TtlCache<i64, (i32, String)>>> =
@@ -102,7 +86,7 @@ pub async fn set_flood(bot: Bot, msg: Message, pool: db::Pool) -> ResponseResult
         }
         _ => {
             let count: i32 = match args[0].parse() {
-                Ok(n) if n >= 3 && n <= 100 => n,
+                Ok(n) if (3..=100).contains(&n) => n,
                 _ => {
                     bot.send_message(chat_id, i18n::t(&lang, "antiflood-set-invalid", None))
                         .await?;
@@ -271,7 +255,7 @@ pub async fn check_flood(
                 .await?;
             }
             "kick" => {
-                safe_kick(&bot, chat_id, from.id).await;
+                safe_kick(&bot, chat_id, from.id).await.ok();
                 bot.send_message(
                     chat_id,
                     i18n::t(&lang, "antiflood-triggered-kick", Some(&[("name", &name)])),
@@ -317,6 +301,8 @@ pub async fn antiflood_callback(bot: Bot, q: CallbackQuery, pool: db::Pool) -> R
 
     if let Some(count_str) = data.strip_prefix("af_set_") {
         if let Ok(count) = count_str.parse::<i32>() {
+            let chat_name = msg.chat().title().unwrap_or("Unknown");
+            db::queries::upsert_chat(&pool, chat_id.0, chat_name).await.log_err("antiflood::upsert_chat_cb");
             db::queries::set_antiflood(&pool, chat_id.0, count).await.log_err("antiflood::set_cb");
             FLOOD_SETTINGS_CACHE.invalidate(&chat_id.0);
             let text = if count == 0 {
@@ -329,6 +315,8 @@ pub async fn antiflood_callback(bot: Bot, q: CallbackQuery, pool: db::Pool) -> R
             bot.edit_message_text(msg.chat().id, msg.id(), &text).await?;
         }
     } else if let Some(mode) = data.strip_prefix("af_mode_") {
+        let chat_name = msg.chat().title().unwrap_or("Unknown");
+        db::queries::upsert_chat(&pool, chat_id.0, chat_name).await.log_err("antiflood::upsert_chat_mode_cb");
         db::queries::set_antiflood_mode(&pool, chat_id.0, mode).await.log_err("antiflood::set_mode_cb");
         FLOOD_SETTINGS_CACHE.invalidate(&chat_id.0);
         let text = i18n::t(&lang, "antiflood-mode-set", Some(&[("mode", mode)]));

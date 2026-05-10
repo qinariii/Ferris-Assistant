@@ -91,7 +91,7 @@ pub async fn get(bot: Bot, msg: Message, pool: db::Pool) -> ResponseResult<()> {
     let name = &args[0];
     match db::queries::get_note(&pool, chat_id.0, name).await {
         Ok(Some(note)) => {
-            bot.send_message(chat_id, formatting::html_escape(&note.content))
+            bot.send_message(chat_id, &note.content)
                 .parse_mode(ParseMode::Html)
                 .await?;
         }
@@ -118,13 +118,10 @@ pub async fn hash_get(bot: Bot, msg: Message, pool: db::Pool) -> ResponseResult<
         return Ok(());
     }
 
-    match db::queries::get_note(&pool, chat_id.0, name).await {
-        Ok(Some(note)) => {
-            bot.send_message(chat_id, formatting::html_escape(&note.content))
-                .parse_mode(ParseMode::Html)
-                .await?;
-        }
-        _ => {}
+    if let Ok(Some(note)) = db::queries::get_note(&pool, chat_id.0, name).await {
+        bot.send_message(chat_id, &note.content)
+            .parse_mode(ParseMode::Html)
+            .await?;
     }
     Ok(())
 }

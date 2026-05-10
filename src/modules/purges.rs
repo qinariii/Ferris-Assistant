@@ -2,6 +2,8 @@ use teloxide::prelude::*;
 
 use crate::utils::permissions;
 
+const MAX_PURGE: i32 = 200;
+
 pub async fn purge(bot: Bot, msg: Message) -> ResponseResult<()> {
     let chat_id = msg.chat.id;
     let from = match msg.from.as_ref() {
@@ -39,22 +41,30 @@ pub async fn purge(bot: Bot, msg: Message) -> ResponseResult<()> {
         return Ok(());
     }
 
+    let range = to_id - from_id + 1;
+    if range > MAX_PURGE {
+        bot.send_message(
+            chat_id,
+            format!("❌ Range too large ({} messages). Maximum is {}.", range, MAX_PURGE),
+        )
+        .await?;
+        return Ok(());
+    }
+
     let mut deleted = 0;
     let mut failed = 0;
 
-    let msg_ids: Vec<i32> = (from_id..=to_id).collect();
-    for chunk in msg_ids.chunks(20) {
-        for &msg_id in chunk {
-            match bot
-                .delete_message(chat_id, teloxide::types::MessageId(msg_id))
-                .await
-            {
-                Ok(_) => deleted += 1,
-                Err(_) => failed += 1,
-            }
+    // Use batch delete_messages API (up to 100 messages per call) for efficiency
+    let msg_ids: Vec<teloxide::types::MessageId> = (from_id..=to_id)
+        .map(teloxide::types::MessageId)
+        .collect();
+    for chunk in msg_ids.chunks(100) {
+        match bot.delete_messages(chat_id, chunk.to_vec()).await {
+            Ok(_) => deleted += chunk.len(),
+            Err(_) => failed += chunk.len(),
         }
-        if chunk.len() == 20 {
-            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        if chunk.len() == 100 {
+            tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
         }
     }
 

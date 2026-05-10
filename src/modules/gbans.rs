@@ -102,40 +102,34 @@ pub async fn gban(bot: Bot, msg: Message, cfg: AppConfig, pool: db::Pool) -> Res
         .ok();
     GBAN_CACHE.invalidate();
 
-    let status_msg = bot
-        .send_message(chat_id, "🌐 Starting global ban...")
-        .await?;
-
-    // Ban in all known chats
-    let all_chats = db::queries::get_all_chats(&pool).await.unwrap_or_default();
-    let mut success_count = 0;
-    let mut fail_count = 0;
-
-    for chat in &all_chats {
-        match bot.ban_chat_member(ChatId(chat.chat_id), target_id).await {
-            Ok(_) => success_count += 1,
-            Err(_) => fail_count += 1,
-        }
-        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
-    }
-
     let member = bot.get_chat_member(chat_id, target_id).await.ok();
     let name = member
         .map(|m| m.user.first_name.clone())
         .unwrap_or_else(|| target_id.to_string());
     let escaped_name = formatting::html_escape(&name);
     let admin_name = formatting::mention_html(from);
-    let success_str = success_count.to_string();
-    let fail_str = fail_count.to_string();
+    let reason_escaped = formatting::html_escape(reason_str);
 
     let mut text = i18n::t(&lang, "gban-success", Some(&[("name", &escaped_name)]));
-    text.push_str(&format!("\n{}", i18n::t(&lang, "gban-reason", Some(&[("reason", &formatting::html_escape(reason_str))]))));
+    text.push_str(&format!("\n{}", i18n::t(&lang, "gban-reason", Some(&[("reason", &reason_escaped)]))));
     text.push_str(&format!("\n{}", i18n::t(&lang, "gban-by", Some(&[("admin", &admin_name)]))));
-    text.push_str(&format!("\n{}", i18n::t(&lang, "gban-stats", Some(&[("success", &success_str), ("fail", &fail_str)]))));
+    text.push_str("\n🌐 Banning in all chats in background...");
 
-    bot.edit_message_text(chat_id, status_msg.id, &text)
+    bot.send_message(chat_id, &text)
         .parse_mode(ParseMode::Html)
         .await?;
+
+    // Execute the cross-chat ban loop as a background task so it doesn't
+    // block the async runtime while iterating potentially hundreds of chats.
+    let bot_clone = bot.clone();
+    let pool_clone = pool.clone();
+    tokio::spawn(async move {
+        let all_chats = db::queries::get_all_chats(&pool_clone).await.unwrap_or_default();
+        for chat in &all_chats {
+            bot_clone.ban_chat_member(ChatId(chat.chat_id), target_id).await.ok();
+            tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+        }
+    });
 
     // Log
     crate::modules::log_channel::send_log(
@@ -191,33 +185,19 @@ pub async fn ungban(bot: Bot, msg: Message, cfg: AppConfig, pool: db::Pool) -> R
     match db::queries::ungban_user(&pool, uid_to_i64(target_id)).await {
         Ok(true) => {
             GBAN_CACHE.invalidate();
-            let status_msg = bot
-                .send_message(chat_id, "🌐 Removing global ban...")
+            bot.send_message(chat_id, i18n::t(&lang, "ungban-success", None))
                 .await?;
 
-            // Unban in all known chats
-            let all_chats = db::queries::get_all_chats(&pool).await.unwrap_or_default();
-            let mut success_count = 0;
-
-            for chat in &all_chats {
-                if bot
-                    .unban_chat_member(ChatId(chat.chat_id), target_id)
-                    .await
-                    .is_ok()
-                {
-                    success_count += 1;
+            // Unban loop in background
+            let bot_clone = bot.clone();
+            let pool_clone = pool.clone();
+            tokio::spawn(async move {
+                let all_chats = db::queries::get_all_chats(&pool_clone).await.unwrap_or_default();
+                for chat in &all_chats {
+                    bot_clone.unban_chat_member(ChatId(chat.chat_id), target_id).await.ok();
+                    tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
                 }
-                tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
-            }
-
-            let count_str = success_count.to_string();
-            bot.edit_message_text(
-                chat_id,
-                status_msg.id,
-                i18n::t(&lang, "ungban-success", Some(&[("count", &count_str)])),
-            )
-            .parse_mode(ParseMode::Html)
-            .await?;
+            });
         }
         _ => {
             bot.send_message(chat_id, i18n::t(&lang, "ungban-not-banned", None))
@@ -271,15 +251,16 @@ pub async fn gbanlist(bot: Bot, msg: Message, cfg: AppConfig, pool: db::Pool) ->
     Ok(())
 }
 
-/// Check new members against gban list
+/// Check new members against gban list.
+/// Returns `true` if the user was actioned (banned).
 pub async fn check_gban(
     bot: Bot,
     msg: Message,
     pool: db::Pool,
-) -> ResponseResult<()> {
+) -> ResponseResult<bool> {
     let from = match msg.from.as_ref() {
         Some(u) => u,
-        None => return Ok(()),
+        None => return Ok(false),
     };
 
     let chat_id = msg.chat.id;
@@ -316,8 +297,9 @@ pub async fn check_gban(
             )
             .parse_mode(ParseMode::Html)
             .await?;
+            return Ok(true);
         }
     }
 
-    Ok(())
+    Ok(false)
 }

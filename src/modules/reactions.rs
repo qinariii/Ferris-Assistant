@@ -5,6 +5,8 @@ use once_cell::sync::Lazy;
 use teloxide::prelude::*;
 use teloxide::types::{ParseMode, ReactionType};
 
+use regex::Regex;
+
 use crate::db;
 use crate::utils::{cache::TtlCache, formatting, permissions};
 
@@ -44,6 +46,19 @@ pub async fn addreaction(bot: Bot, msg: Message, pool: db::Pool) -> ResponseResu
 
     let keyword = args[0].to_lowercase();
     let emoji = &args[1];
+
+    // Validate that the keyword produces a valid regex and isn't too long
+    if keyword.len() > 128 {
+        bot.send_message(chat_id, "❌ Keyword is too long (max 128 characters).")
+            .await?;
+        return Ok(());
+    }
+    let test_pattern = format!(r"(?i)\b{}\b", regex::escape(&keyword));
+    if Regex::new(&test_pattern).is_err() {
+        bot.send_message(chat_id, "❌ Invalid keyword pattern.")
+            .await?;
+        return Ok(());
+    }
 
     db::queries::add_reaction(&pool, chat_id.0, &keyword, emoji).await.ok();
     REACTION_CACHE.invalidate(&chat_id.0);
@@ -164,7 +179,7 @@ pub async fn resetreactions(bot: Bot, msg: Message, pool: db::Pool) -> ResponseR
 
 
 pub async fn check_reactions(bot: Bot, msg: Message, pool: db::Pool) -> ResponseResult<()> {
-    let text = match msg.text() {
+    let text = match msg.text().or_else(|| msg.caption()) {
         Some(t) => t.to_lowercase(),
         None => return Ok(()),
     };
@@ -186,7 +201,19 @@ pub async fn check_reactions(bot: Bot, msg: Message, pool: db::Pool) -> Response
     }
 
     for reaction in &reactions {
-        if text.contains(&reaction.keyword) {
+        // Skip overly long keywords to prevent catastrophic regex backtracking
+        if reaction.keyword.len() > 128 {
+            continue;
+        }
+        let pattern = format!(r"(?i)\b{}\b", regex::escape(&reaction.keyword));
+        let matched = match Regex::new(&pattern) {
+            Ok(re) => re.is_match(&text),
+            Err(e) => {
+                log::warn!("reactions: invalid regex for keyword '{}': {}", reaction.keyword, e);
+                continue;
+            }
+        };
+        if matched {
             // Use Telegram's setMessageReaction API
             bot.set_message_reaction(chat_id, msg.id)
                 .reaction(vec![ReactionType::Emoji {

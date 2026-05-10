@@ -1,23 +1,31 @@
-# ─── Build Stage ──────────────────────────────────────────────────────────────
-FROM rust:1.88-slim-bookworm AS builder
-
-# Install dependencies sistem (apt-get install -y pkg-config libssl-dev)
-RUN apt-get update && apt-get install -y pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
-
+# ─── Planner Stage (cargo-chef) ──────────────────────────────────────────────
+FROM lukemathwalker/cargo-chef:latest-rust-1.88-slim-bookworm AS chef
+RUN apt-get update && apt-get install -y pkg-config libssl-dev libpq-dev && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 
-# Clone sudah digantikan oleh COPY
+# ─── Prepare recipe (hanya tergantung Cargo.toml/Cargo.lock) ────────────────
+FROM chef AS planner
+COPY Cargo.toml Cargo.lock ./
+COPY src/ src/
+RUN cargo chef prepare --recipe-path recipe.json
+
+# ─── Build Stage ─────────────────────────────────────────────────────────────
+FROM chef AS builder
+
+# Step 1: Cook dependencies dari recipe — di-cache selama Cargo.toml/lock sama
+COPY --from=planner /app/recipe.json recipe.json
+RUN cargo chef cook --release --recipe-path recipe.json
+
+# Step 2: Build source code — hanya recompile kode kamu, bukan dependencies
 COPY Cargo.toml Cargo.lock ./
 COPY src/ src/
 COPY migrations/ migrations/
-
-# cargo build --release
 RUN cargo build --release
 
-# ─── Runtime Stage ────────────────────────────────────────────────────────────
+# ─── Runtime Stage ───────────────────────────────────────────────────────────
 FROM debian:bookworm-slim
 
-RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y ca-certificates libpq5 curl && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
@@ -26,6 +34,9 @@ COPY --from=builder /app/target/release/ferris-bot ./ferris-bot
 COPY locales/ /app/locales/
 
 ENV RUST_LOG=info
+EXPOSE 8080 8443
 
-# ./target/release/ferris-bot
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+    CMD curl -f http://localhost:8080/health || exit 1
+
 CMD ["./ferris-bot"]

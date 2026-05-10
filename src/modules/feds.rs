@@ -42,7 +42,7 @@ pub async fn newfed(bot: Bot, msg: Message, pool: db::Pool) -> ResponseResult<()
     };
 
     let text = msg.text().unwrap_or("");
-    let fed_name = text.splitn(2, ' ').nth(1).unwrap_or("").trim();
+    let fed_name = text.split_once(' ').map(|x| x.1).unwrap_or("").trim();
 
     if fed_name.is_empty() {
         bot.send_message(chat_id, "❌ Usage: /newfed <federation name>")
@@ -502,41 +502,39 @@ pub async fn fban(bot: Bot, msg: Message, cfg: AppConfig, pool: db::Pool) -> Res
         .await
         .ok();
 
-    // Ban in all fed chats
-    let fed_chats = db::queries::get_fed_chats(&pool, &fed_id).await.unwrap_or_default();
-    let mut success = 0;
-    let mut fail = 0;
-
-    for fc in &fed_chats {
-        match bot.ban_chat_member(ChatId(fc.chat_id), target_id).await {
-            Ok(_) => success += 1,
-            Err(_) => fail += 1,
-        }
-        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
-    }
-
     let fed = db::queries::get_federation(&pool, &fed_id).await.ok().flatten();
     let fed_name = fed.map(|f| f.fed_name).unwrap_or_else(|| "Unknown".to_string());
 
     let text = format!(
-        "🏛 <b>New Federation Ban</b>\n\n\
+        "� <b>New Federation Ban</b>\n\n\
         <b>Federation:</b> {}\n\
         <b>User:</b> {} [<code>{}</code>]\n\
         <b>Reason:</b> {}\n\
         <b>By:</b> {}\n\n\
-        ✅ Banned in {} chats\n❌ Failed in {} chats",
+        🏗 Banning across federation chats in background...",
         formatting::html_escape(&fed_name),
         formatting::html_escape(&name),
         target_id.0,
         formatting::html_escape(reason_str),
         formatting::mention_html(from),
-        success,
-        fail,
     );
 
     bot.edit_message_text(chat_id, status_msg.id, &text)
         .parse_mode(ParseMode::Html)
         .await?;
+
+    // Ban in all fed chats as background task
+    let bot_clone = bot.clone();
+    let pool_clone = pool.clone();
+    let fed_id_clone = fed_id.clone();
+    tokio::spawn(async move {
+        let fed_chats = db::queries::get_fed_chats(&pool_clone, &fed_id_clone).await.unwrap_or_default();
+        for fc in &fed_chats {
+            bot_clone.ban_chat_member(ChatId(fc.chat_id), target_id).await.ok();
+            tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+        }
+    });
+
     Ok(())
 }
 
@@ -583,30 +581,24 @@ pub async fn unfban(bot: Bot, msg: Message, cfg: AppConfig, pool: db::Pool) -> R
 
     match db::queries::unfban_user(&pool, &fed_id, uid_to_i64(target_id)).await {
         Ok(true) => {
-            let status_msg = bot
-                .send_message(chat_id, "🏛 Removing federation ban...")
-                .await?;
-
-            // Unban in all fed chats
-            let fed_chats = db::queries::get_fed_chats(&pool, &fed_id).await.unwrap_or_default();
-            let mut success = 0;
-            for fc in &fed_chats {
-                if bot.unban_chat_member(ChatId(fc.chat_id), target_id).await.is_ok() {
-                    success += 1;
-                }
-                tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
-            }
-
-            bot.edit_message_text(
+            bot.send_message(
                 chat_id,
-                status_msg.id,
-                format!(
-                    "✅ User <code>{}</code> has been un-fbanned.\nUnbanned in {} chats.",
-                    target_id.0, success
-                ),
+                format!("✅ User <code>{}</code> has been un-fbanned. Unbanning across federation in background.", target_id.0),
             )
             .parse_mode(ParseMode::Html)
             .await?;
+
+            // Unban in all fed chats as background task
+            let bot_clone = bot.clone();
+            let pool_clone = pool.clone();
+            let fed_id_clone = fed_id.clone();
+            tokio::spawn(async move {
+                let fed_chats = db::queries::get_fed_chats(&pool_clone, &fed_id_clone).await.unwrap_or_default();
+                for fc in &fed_chats {
+                    bot_clone.unban_chat_member(ChatId(fc.chat_id), target_id).await.ok();
+                    tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+                }
+            });
         }
         _ => {
             bot.send_message(chat_id, "❌ This user is not fbanned in this federation.")
@@ -788,14 +780,15 @@ pub async fn fedrules(bot: Bot, msg: Message, pool: db::Pool) -> ResponseResult<
 }
 
 
+/// Returns `true` if the user was actioned (banned).
 pub async fn check_fban(
     bot: Bot,
     msg: Message,
     pool: db::Pool,
-) -> ResponseResult<()> {
+) -> ResponseResult<bool> {
     let from = match msg.from.as_ref() {
         Some(u) => u,
-        None => return Ok(()),
+        None => return Ok(false),
     };
 
     let chat_id = msg.chat.id;
@@ -804,7 +797,7 @@ pub async fn check_fban(
     let fed_id = if let Some(cached) = FED_CHAT_CACHE.get(&chat_id.0) {
         match cached {
             Some(fid) => fid,
-            None => return Ok(()),
+            None => return Ok(false),
         }
     } else {
         match db::queries::get_fed_chat(&pool, chat_id.0).await {
@@ -814,7 +807,7 @@ pub async fn check_fban(
             }
             _ => {
                 FED_CHAT_CACHE.set(chat_id.0, None);
-                return Ok(());
+                return Ok(false);
             }
         }
     };
@@ -849,8 +842,9 @@ pub async fn check_fban(
             )
             .parse_mode(ParseMode::Html)
             .await?;
+            return Ok(true);
         }
     }
 
-    Ok(())
+    Ok(false)
 }

@@ -1,3 +1,4 @@
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -32,7 +33,7 @@ pub struct Warn {
     pub user_id: i64,
     pub reason: String,
     pub warned_by: i64,
-    pub created_at: String,
+    pub created_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -80,7 +81,7 @@ pub struct Gban {
     pub user_id: i64,
     pub reason: String,
     pub banned_by: i64,
-    pub created_at: String,
+    pub created_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -116,6 +117,7 @@ pub struct BlstickerSetting {
     pub mode: i32,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct UserChat {
     pub user_id: i64,

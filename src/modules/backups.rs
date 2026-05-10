@@ -1,5 +1,5 @@
 use teloxide::prelude::*;
-use teloxide::types::{InputFile, ParseMode};
+use teloxide::types::InputFile;
 
 use crate::db;
 use crate::utils::permissions;
@@ -63,6 +63,7 @@ pub async fn export(bot: Bot, msg: Message, pool: db::Pool) -> ResponseResult<()
         "warns": warns.iter().map(|w| serde_json::json!({
             "user_id": w.user_id,
             "reason": w.reason,
+            "warned_by": w.warned_by,
         })).collect::<Vec<_>>(),
     });
 
@@ -165,20 +166,28 @@ pub async fn import(bot: Bot, msg: Message, pool: db::Pool) -> ResponseResult<()
         if let Some(rules) = settings.get("rules").and_then(|v| v.as_str()) {
             db::queries::set_rules(&pool, chat_id.0, rules).await.ok();
         }
-        if let Some(warn_limit) = settings.get("warn_limit").and_then(|v| v.as_i64()) {
-            db::queries::set_warn_limit(&pool, chat_id.0, warn_limit as i32).await.ok();
-        }
         if let Some(warn_mode) = settings.get("warn_mode").and_then(|v| v.as_str()) {
-            db::queries::set_warn_mode(&pool, chat_id.0, warn_mode).await.ok();
+            if ["ban", "kick", "mute"].contains(&warn_mode) {
+                db::queries::set_warn_mode(&pool, chat_id.0, warn_mode).await.ok();
+            }
+        }
+        if let Some(warn_limit) = settings.get("warn_limit").and_then(|v| v.as_i64()) {
+            let clamped = warn_limit.clamp(1, 100) as i32;
+            db::queries::set_warn_limit(&pool, chat_id.0, clamped).await.ok();
         }
         if let Some(af_count) = settings.get("antiflood_count").and_then(|v| v.as_i64()) {
-            db::queries::set_antiflood(&pool, chat_id.0, af_count as i32).await.ok();
+            let clamped = af_count.clamp(0, 1000) as i32;
+            db::queries::set_antiflood(&pool, chat_id.0, clamped).await.ok();
         }
         if let Some(af_mode) = settings.get("antiflood_mode").and_then(|v| v.as_str()) {
-            db::queries::set_antiflood_mode(&pool, chat_id.0, af_mode).await.ok();
+            if ["ban", "kick", "mute"].contains(&af_mode) {
+                db::queries::set_antiflood_mode(&pool, chat_id.0, af_mode).await.ok();
+            }
         }
         if let Some(lang) = settings.get("language").and_then(|v| v.as_str()) {
-            db::queries::set_language(&pool, chat_id.0, lang).await.ok();
+            if ["en", "id"].contains(&lang) {
+                db::queries::set_language(&pool, chat_id.0, lang).await.ok();
+            }
         }
     }
 

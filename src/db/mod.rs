@@ -1,21 +1,15 @@
-#[allow(dead_code)]
 pub mod models;
-#[allow(dead_code)]
 pub mod queries;
 
-use sqlx::sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions};
-use std::str::FromStr;
+use sqlx::postgres::{PgPool, PgPoolOptions};
 
-pub type Pool = SqlitePool;
+pub type Pool = PgPool;
 
 pub async fn init_db(database_url: &str) -> Result<Pool, sqlx::Error> {
-    let options = SqliteConnectOptions::from_str(database_url)?
-        .create_if_missing(true)
-        .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal);
-
-    let pool = SqlitePoolOptions::new()
-        .max_connections(5)
-        .connect_with(options)
+    let pool = PgPoolOptions::new()
+        .max_connections(20)
+        .min_connections(2)
+        .connect(database_url)
         .await?;
 
     sqlx::migrate!("./migrations")

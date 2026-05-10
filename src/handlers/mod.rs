@@ -1,11 +1,11 @@
 use teloxide::dispatching::{UpdateFilterExt, UpdateHandler};
 use teloxide::dptree;
 use teloxide::prelude::*;
-use teloxide::types::{ChatMemberUpdated, Message, Update};
+use teloxide::types::{ChatMemberKind, ChatMemberUpdated, Message, Update};
 
 use crate::config::AppConfig;
 use crate::db;
-use crate::utils::{formatting, i18n, permissions, LogErrExt};
+use crate::utils::{formatting, permissions, LogErrExt};
 use crate::modules::{
     admin, afk, antiflood, antispam, backups, bans, blacklist, blstickers, captcha, chatpermissions,
     cleaner, connections, devs, disable, feds, filters, gbans, help, locks, log_channel, mutes, notes,
@@ -474,16 +474,25 @@ async fn handle_message(
 ) -> ResponseResult<()> {
     let is_private = msg.chat.is_private();
 
-    // rate-limit check — bail before any DB work
+    // Fire-and-forget user/chat tracking — runs before antispam so that
+    // spamming users are still tracked in the DB for accurate statistics.
+    {
+        let bot2 = bot.clone();
+        let msg2 = msg.clone();
+        let pool2 = pool.clone();
+        tokio::spawn(async move {
+            if let Err(e) = users::log_users(bot2, msg2, pool2).await {
+                log::error!("[users::log_users] {}", e);
+            }
+        });
+    }
+
+    // rate-limit check — bail before any other work
     if antispam::check_antispam(bot.clone(), msg.clone(), cfg.clone())
         .await
         .unwrap_or(false)
     {
         return Ok(());
-    }
-
-    if let Err(e) = users::log_users(bot.clone(), msg.clone(), pool.clone()).await {
-        log::error!("[users::log_users] {}", e);
     }
 
     if let Some(text) = msg.text() {
@@ -493,9 +502,23 @@ async fn handle_message(
                 .ok();
         }
         if text.contains("@admin") && !is_private {
-            reports::check_admin_tag(bot.clone(), msg.clone(), pool.clone())
-                .await
-                .ok();
+            // Only trigger report if the sender is NOT an admin (avoids
+            // annoying "Admins don't need to report" messages when admins
+            // casually mention @admin in conversation).
+            let sender_is_admin = msg.from.as_ref().map(|u| u.id).map(|uid| {
+                // We already pre-warmed the permission cache above, so this
+                // is a cheap cache lookup most of the time.
+                permissions::is_user_admin(&bot, msg.chat.id, uid)
+            });
+            let skip = match sender_is_admin {
+                Some(fut) => fut.await,
+                None => false,
+            };
+            if !skip {
+                reports::check_admin_tag(bot.clone(), msg.clone(), pool.clone())
+                    .await
+                    .ok();
+            }
         }
     }
 
@@ -504,8 +527,15 @@ async fn handle_message(
     }
 
     // afk runs in both private and group
-    if let Err(e) = afk::check_no_longer_afk(bot.clone(), msg.clone(), pool.clone()).await {
-        log::error!("[afk::check_no_longer_afk] {}", e);
+    let is_brb = msg.text().map(|t| t.split_whitespace().any(|w| w.to_lowercase() == "brb")).unwrap_or(false);
+    if is_brb {
+        if let Err(e) = afk::brb_afk(bot.clone(), msg.clone(), pool.clone()).await {
+            log::error!("[afk::brb_afk] {}", e);
+        }
+    } else {
+        if let Err(e) = afk::check_no_longer_afk(bot.clone(), msg.clone(), pool.clone()).await {
+            log::error!("[afk::check_no_longer_afk] {}", e);
+        }
     }
     if let Err(e) = afk::check_afk_reply(bot.clone(), msg.clone(), pool.clone()).await {
         log::error!("[afk::check_afk_reply] {}", e);
@@ -516,56 +546,71 @@ async fn handle_message(
         return Ok(());
     }
 
-    if let Err(e) = antiflood::check_flood(
-        bot.clone(),
-        msg.clone(),
-        cfg.clone(),
-        pool.clone(),
-        flood_tracker,
-    )
-    .await
-    {
-        log::error!("[antiflood::check_flood] {}", e);
+    // Pre-warm the admin permission cache for the sender so concurrent
+    // checks below don't each trigger their own Telegram API call.
+    if let Some(from) = msg.from.as_ref() {
+        permissions::is_user_admin(&bot, msg.chat.id, from.id).await;
     }
 
-    if let Err(e) = gbans::check_gban(bot.clone(), msg.clone(), pool.clone()).await {
-        log::error!("[gbans::check_gban] {}", e);
+    // Run punitive checks sequentially so that once a user is actioned
+    // (banned/kicked) by one check, later checks are skipped and don't
+    // issue duplicate Telegram API calls against the same user.
+    // Non-punitive checks (filters, reactions, cleaner) run concurrently.
+    let mut user_actioned = false;
+
+    // --- Punitive checks (order matters: gban > fban > flood > blacklist > blsticker > locks) ---
+    match gbans::check_gban(bot.clone(), msg.clone(), pool.clone()).await {
+        Ok(true) => { user_actioned = true; }
+        Ok(false) => {}
+        Err(e) => log::error!("[gbans::check_gban] {}", e),
     }
-    if let Err(e) = feds::check_fban(bot.clone(), msg.clone(), pool.clone()).await {
-        log::error!("[feds::check_fban] {}", e);
+
+    if !user_actioned {
+        match feds::check_fban(bot.clone(), msg.clone(), pool.clone()).await {
+            Ok(true) => { user_actioned = true; }
+            Ok(false) => {}
+            Err(e) => log::error!("[feds::check_fban] {}", e),
+        }
+    }
+
+    if !user_actioned {
+        if let Err(e) = antiflood::check_flood(bot.clone(), msg.clone(), cfg.clone(), pool.clone(), flood_tracker).await {
+            log::error!("[antiflood::check_flood] {}", e);
+        }
     }
 
     match locks::check_locks(bot.clone(), msg.clone(), pool.clone()).await {
-        Ok(true) => return Ok(()),
+        Ok(true) => { user_actioned = true; }
+        Ok(false) => {}
         Err(e) => log::error!("[locks::check_locks] {}", e),
-        _ => {}
     }
 
-    match blstickers::check_blacklist_sticker(bot.clone(), msg.clone(), pool.clone()).await {
-        Ok(true) => return Ok(()),
-        Err(e) => log::error!("[blstickers::check_blacklist_sticker] {}", e),
-        _ => {}
+    if !user_actioned {
+        match blstickers::check_blacklist_sticker(bot.clone(), msg.clone(), pool.clone()).await {
+            Ok(true) => { user_actioned = true; }
+            Ok(false) => {}
+            Err(e) => log::error!("[blstickers::check_blacklist_sticker] {}", e),
+        }
     }
 
-    match blacklist::check_blacklist(bot.clone(), msg.clone(), cfg.clone(), pool.clone()).await {
-        Ok(true) => return Ok(()),
-        Err(e) => log::error!("[blacklist::check_blacklist] {}", e),
-        _ => {}
+    if !user_actioned {
+        match blacklist::check_blacklist(bot.clone(), msg.clone(), cfg.clone(), pool.clone()).await {
+            Ok(true) => { /* user was actioned by blacklist */ }
+            Ok(false) => {}
+            Err(e) => log::error!("[blacklist::check_blacklist] {}", e),
+        }
     }
 
-    if let Err(e) = filters::check_filters(bot.clone(), msg.clone(), pool.clone()).await {
-        log::error!("[filters::check_filters] {}", e);
-    }
+    // --- Non-punitive checks can run concurrently ---
+    let (filters_r, reactions_r, cleaner_r) = tokio::join!(
+        filters::check_filters(bot.clone(), msg.clone(), pool.clone()),
+        reactions::check_reactions(bot.clone(), msg.clone(), pool.clone()),
+        cleaner::check_service_message(bot, msg, cfg, pool),
+    );
 
-    if let Err(e) = reactions::check_reactions(bot.clone(), msg.clone(), pool.clone()).await {
-        log::error!("[reactions::check_reactions] {}", e);
-    }
-
-    if let Err(e) =
-        cleaner::check_service_message(bot.clone(), msg.clone(), cfg.clone(), pool.clone()).await
-    {
-        log::error!("[cleaner::check_service_message] {}", e);
-    }
+    if let Err(e) = filters_r { log::error!("[filters::check_filters] {}", e); }
+    if let Err(e) = reactions_r { log::error!("[reactions::check_reactions] {}", e); }
+    if let Err(e) = cleaner_r { log::error!("[cleaner::check_service_message] {}", e); }
 
     Ok(())
 }
@@ -576,8 +621,8 @@ async fn handle_callback(bot: Bot, q: CallbackQuery, cfg: AppConfig, pool: db::P
     match data {
         // Navigation
         "start_back" => start::start_back_callback(bot, q, cfg).await?,
-        "help_main" => help::help_main_callback(bot, q).await?,
-        "about" => help::about_callback(bot, q).await?,
+        "help_main" => help::help_main_callback(bot, q, pool).await?,
+        "about" => help::about_callback(bot, q, pool).await?,
         "close" => help::close_callback(bot, q).await?,
         "settings" => {
             let msg = match q.message {
@@ -592,7 +637,12 @@ async fn handle_callback(bot: Bot, q: CallbackQuery, cfg: AppConfig, pool: db::P
         }
 
         // Help modules
-        d if d.starts_with("help_") => help::help_module_callback(bot, q).await?,
+        d if d.starts_with("help_") => help::help_module_callback(bot, q, pool).await?,
+
+        // Example usage & Formatting (help sub-pages)
+        d if d.starts_with("example_") => help::example_callback(bot, q, pool).await?,
+        d if d.starts_with("fmtsub_") => help::formatting_sub_callback(bot, q, pool).await?,
+        d if d.starts_with("fmt_") => help::formatting_callback(bot, q, pool).await?,
 
         // Unban
         d if d.starts_with("unban_") => bans::unban_callback(bot, q, cfg, pool).await?,
@@ -647,6 +697,8 @@ async fn handle_callback(bot: Bot, q: CallbackQuery, cfg: AppConfig, pool: db::P
             let chat_data = db::queries::get_chat(&pool, chat_id.0).await.ok().flatten();
             let currently_enabled = chat_data.map(|c| c.welcome_enabled).unwrap_or(true);
             let new_state = !currently_enabled;
+            let chat_name = msg.chat().title().unwrap_or("Unknown");
+            db::queries::upsert_chat(&pool, chat_id.0, chat_name).await.log_err("welcome_toggle_cb::upsert_chat");
             db::queries::toggle_welcome(&pool, chat_id.0, new_state).await.ok();
             bot.edit_message_text(chat_id, msg.id(), "👋 <b>Welcome Settings</b>")
                 .parse_mode(teloxide::types::ParseMode::Html)
@@ -701,6 +753,8 @@ async fn handle_callback(bot: Bot, q: CallbackQuery, cfg: AppConfig, pool: db::P
             let chat_data = db::queries::get_chat(&pool, chat_id.0).await.ok().flatten();
             let currently_enabled = chat_data.map(|c| c.goodbye_enabled).unwrap_or(true);
             let new_state = !currently_enabled;
+            let chat_name = msg.chat().title().unwrap_or("Unknown");
+            db::queries::upsert_chat(&pool, chat_id.0, chat_name).await.log_err("goodbye_toggle_cb::upsert_chat");
             db::queries::toggle_goodbye(&pool, chat_id.0, new_state).await.ok();
             bot.edit_message_text(chat_id, msg.id(), "👋 <b>Goodbye Settings</b>")
                 .parse_mode(teloxide::types::ParseMode::Html)
@@ -810,8 +864,10 @@ async fn handle_chat_member(
             welcome::welcome_new_member(bot, update, pool).await?;
         }
     } else if old.is_present() && !new.is_present() {
-        // Member left
-        welcome::goodbye_member(bot, update, pool).await?;
+        // Only fire goodbye on voluntary leave, not on ban/kick
+        if matches!(new.kind, ChatMemberKind::Left) {
+            welcome::goodbye_member(bot, update, pool).await?;
+        }
     }
 
     Ok(())
@@ -894,13 +950,14 @@ async fn misc_settings(bot: Bot, msg: Message) -> ResponseResult<()> {
 
 async fn misc_setlang(bot: Bot, msg: Message, pool: db::Pool) -> ResponseResult<()> {
     let chat_id = msg.chat.id;
+    let lang = crate::utils::i18n::get_chat_lang(&pool, chat_id.0).await;
     let from = match msg.from.as_ref() {
         Some(u) => u,
         None => return Ok(()),
     };
 
     if !crate::utils::permissions::is_user_admin(&bot, chat_id, from.id).await {
-        bot.send_message(chat_id, "❌ You need to be an admin to change the language.")
+        bot.send_message(chat_id, crate::utils::i18n::t(&lang, "error-need-admin", None))
             .await?;
         return Ok(());
     }
@@ -914,30 +971,31 @@ async fn misc_setlang(bot: Bot, msg: Message, pool: db::Pool) -> ResponseResult<
         .collect();
 
     if args.is_empty() {
-        bot.send_message(chat_id, "🌐 Select a language:")
-            .reply_markup(crate::keyboards::inline::language_keyboard())
+        bot.send_message(chat_id, crate::utils::i18n::t(&lang, "lang-select", None))
+            .reply_markup(crate::keyboards::inline::language_command_keyboard())
             .await?;
         return Ok(());
     }
 
-    let lang = args[0].to_lowercase();
-    if !["en", "id"].contains(&lang.as_str()) {
-        bot.send_message(chat_id, "❌ Supported languages: en, id")
+    let new_lang = args[0].to_lowercase();
+    if !["en", "id"].contains(&new_lang.as_str()) {
+        bot.send_message(chat_id, crate::utils::i18n::t(&lang, "lang-unsupported", None))
             .await?;
         return Ok(());
     }
 
     let chat_name = msg.chat.title().unwrap_or("Private");
     db::queries::upsert_chat(&pool, chat_id.0, chat_name).await.log_err("setlang::upsert_chat");
-    db::queries::set_language(&pool, chat_id.0, &lang).await.log_err("setlang::set_language");
+    db::queries::set_language(&pool, chat_id.0, &new_lang).await.log_err("setlang::set_language");
+    crate::utils::i18n::invalidate_lang_cache(chat_id.0);
 
-    let lang_name = match lang.as_str() {
+    let lang_name = match new_lang.as_str() {
         "en" => "English 🇬🇧",
         "id" => "Indonesia 🇮🇩",
-        _ => &lang,
+        _ => &new_lang,
     };
 
-    bot.send_message(chat_id, format!("✅ Language set to <b>{}</b>.", lang_name))
+    bot.send_message(chat_id, crate::utils::i18n::t(&new_lang, "lang-set", Some(&[("language", lang_name)])))
         .parse_mode(teloxide::types::ParseMode::Html)
         .await?;
     Ok(())
@@ -964,7 +1022,10 @@ async fn handle_lang_callback(bot: Bot, q: CallbackQuery, pool: db::Pool) -> Res
         return Ok(());
     }
 
+    let chat_name = msg.chat().title().unwrap_or("Unknown");
+    db::queries::upsert_chat(&pool, chat_id.0, chat_name).await.log_err("lang_cb::upsert_chat");
     db::queries::set_language(&pool, chat_id.0, lang).await.log_err("lang_cb::set_language");
+    crate::utils::i18n::invalidate_lang_cache(chat_id.0);
 
     let lang_name = match lang {
         "en" => "English 🇬🇧",
@@ -972,13 +1033,15 @@ async fn handle_lang_callback(bot: Bot, q: CallbackQuery, pool: db::Pool) -> Res
         _ => lang,
     };
 
+    let set_text = crate::utils::i18n::t(lang, "lang-set", Some(&[("language", lang_name)]));
+
     bot.answer_callback_query(q.id.clone())
-        .text(format!("✅ Language: {}", lang_name))
+        .text(&set_text)
         .await?;
     bot.edit_message_text(
         msg.chat().id,
         msg.id(),
-        format!("✅ Language set to <b>{}</b>.", lang_name),
+        &set_text,
     )
     .parse_mode(teloxide::types::ParseMode::Html)
     .await?;

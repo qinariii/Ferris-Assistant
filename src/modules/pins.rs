@@ -64,6 +64,12 @@ pub async fn unpin(bot: Bot, msg: Message) -> ResponseResult<()> {
         return Ok(());
     }
 
+    if !permissions::can_bot_pin(&bot, chat_id).await {
+        bot.send_message(chat_id, "❌ I don't have permission to pin messages.")
+            .await?;
+        return Ok(());
+    }
+
     match bot.unpin_chat_message(chat_id).await {
         Ok(_) => {
             bot.send_message(chat_id, "📌 Message unpinned!")
@@ -86,6 +92,12 @@ pub async fn unpinall(bot: Bot, msg: Message) -> ResponseResult<()> {
 
     if !permissions::is_user_owner(&bot, chat_id, from.id).await {
         bot.send_message(chat_id, "❌ Only the group owner can unpin all messages.")
+            .await?;
+        return Ok(());
+    }
+
+    if !permissions::can_bot_pin(&bot, chat_id).await {
+        bot.send_message(chat_id, "❌ I don't have permission to pin messages.")
             .await?;
         return Ok(());
     }

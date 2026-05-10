@@ -9,7 +9,6 @@ use crate::config::AppConfig;
 use crate::utils::formatting::uid_to_i64;
 use crate::utils::permissions;
 
-
 const SPAM_LIMIT: u32 = 18;
 const SPAM_WINDOW: Duration = Duration::from_secs(1);
 const CLEANUP_THRESHOLD: usize = 5000;

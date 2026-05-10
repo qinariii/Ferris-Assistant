@@ -1,14 +1,60 @@
 version: "3.8"
 
 services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: ferris-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ferris
+      POSTGRES_PASSWORD: ferris
+      POSTGRES_DB: ferris
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ferris"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: ferris-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
   ferris-bot:
     build: .
     container_name: ferris-bot
     restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     env_file:
       - .env
-    volumes:
-      - ./data:/app/data
+    ports:
+      - "8080:8080"
     environment:
-      - DATABASE_URL=sqlite:///app/data/ferris.db
+      - DATABASE_URL=postgres://ferris:ferris@postgres/ferris
+      - REDIS_URL=redis://redis:6379
+      - HTTP_PORT=8080
+      - BOT_MODE=polling
       - RUST_LOG=info
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  pgdata:

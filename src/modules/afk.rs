@@ -2,7 +2,7 @@ use teloxide::prelude::*;
 use teloxide::types::{MessageEntityKind, ParseMode};
 
 use crate::db;
-use crate::utils::{formatting, formatting::uid_to_i64, i18n};
+use crate::utils::{formatting, formatting::uid_to_i64, i18n, LogErrExt};
 
 pub async fn afk(bot: Bot, msg: Message, pool: db::Pool) -> ResponseResult<()> {
     let from = match msg.from.as_ref() {
@@ -36,7 +36,6 @@ pub async fn afk(bot: Bot, msg: Message, pool: db::Pool) -> ResponseResult<()> {
 }
 
 /// Also trigger AFK on "brb" messages
-#[allow(dead_code)]
 pub async fn brb_afk(bot: Bot, msg: Message, pool: db::Pool) -> ResponseResult<()> {
     let text = msg.text().unwrap_or("").to_lowercase();
     if text.contains("brb") {
@@ -100,9 +99,25 @@ pub async fn check_afk_reply(bot: Bot, msg: Message, pool: db::Pool) -> Response
                     let text = msg.text().unwrap_or("");
                     let mention = &text[entity.offset..entity.offset + entity.length];
                     let username = mention.trim_start_matches('@');
-                    // We can't easily resolve username->id without a lookup,
-                    // so we skip pure @username mentions for AFK check
-                    let _ = username;
+                    if let Ok(Some(user_row)) =
+                        db::queries::get_user_by_username(&pool, username).await
+                    {
+                        if let Ok(Some(afk_info)) =
+                            db::queries::get_afk(&pool, user_row.user_id).await
+                        {
+                            let name = formatting::html_escape(&user_row.first_name);
+                            let text = if afk_info.reason.is_empty() {
+                                i18n::t(&lang, "afk-is", Some(&[("name", &name)]))
+                            } else {
+                                let escaped_reason = formatting::html_escape(&afk_info.reason);
+                                i18n::t(&lang, "afk-is-reason", Some(&[("name", &name), ("reason", &escaped_reason)]))
+                            };
+                            bot.send_message(msg.chat.id, text)
+                                .parse_mode(ParseMode::Html)
+                                .await
+                                .log_err("afk::mention_notify");
+                        }
+                    }
                 }
                 MessageEntityKind::TextMention { user } => {
                     if let Ok(Some(afk_info)) = db::queries::get_afk(&pool, uid_to_i64(user.id)).await

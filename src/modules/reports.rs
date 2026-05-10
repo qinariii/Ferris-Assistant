@@ -38,7 +38,7 @@ pub async fn report(bot: Bot, msg: Message, pool: db::Pool) -> ResponseResult<()
 
     let reported_user = reply.from.as_ref();
     let reported_name = reported_user
-        .map(|u| formatting::user_display_name(u))
+        .map(formatting::user_display_name)
         .unwrap_or_else(|| "Unknown".to_string());
 
     let reporter_name = formatting::user_display_name(from);
@@ -75,7 +75,7 @@ pub async fn report(bot: Bot, msg: Message, pool: db::Pool) -> ResponseResult<()
         reply.id.0,
     );
 
-    for admin in &admins {
+    for (i, admin) in admins.iter().enumerate() {
         if admin.user.is_bot {
             continue;
         }
@@ -83,6 +83,10 @@ pub async fn report(bot: Bot, msg: Message, pool: db::Pool) -> ResponseResult<()
             .parse_mode(ParseMode::Html)
             .await
             .ok();
+        // Rate limit: small delay between PM notifications to avoid Telegram API throttling
+        if i < admins.len() - 1 {
+            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        }
     }
 
     // Log the action

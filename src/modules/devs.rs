@@ -200,10 +200,18 @@ pub async fn teamusers(bot: Bot, msg: Message, cfg: AppConfig, pool: db::Pool) -
     let mut sudos = Vec::new();
 
     for member in &team {
-        let name = match bot.get_chat(ChatId(member.user_id)).await {
-            Ok(chat) => chat.first_name().unwrap_or("Unknown").to_string(),
-            Err(_) => member.user_id.to_string(),
-        };
+        let name = db::queries::get_user_by_id(&pool, member.user_id)
+            .await
+            .ok()
+            .flatten()
+            .map(|u| {
+                if u.first_name.is_empty() {
+                    u.user_id.to_string()
+                } else {
+                    u.first_name
+                }
+            })
+            .unwrap_or_else(|| member.user_id.to_string());
         let entry = format!(
             "• <a href=\"tg://user?id={}\">{}</a>",
             member.user_id,
@@ -216,10 +224,12 @@ pub async fn teamusers(bot: Bot, msg: Message, cfg: AppConfig, pool: db::Pool) -
         }
     }
 
-    let owner_name = match bot.get_chat(ChatId(cfg.owner_id)).await {
-        Ok(chat) => chat.first_name().unwrap_or("Owner").to_string(),
-        Err(_) => cfg.owner_id.to_string(),
-    };
+    let owner_name = db::queries::get_user_by_id(&pool, cfg.owner_id)
+        .await
+        .ok()
+        .flatten()
+        .map(|u| if u.first_name.is_empty() { "Owner".to_string() } else { u.first_name })
+        .unwrap_or_else(|| cfg.owner_id.to_string());
 
     let mut text = format!(
         "👥 <b>Bot Team</b>\n\n\
@@ -414,7 +424,7 @@ pub async fn broadcast(bot: Bot, msg: Message, cfg: AppConfig, pool: db::Pool) -
     }
 
     let text = msg.text().unwrap_or("");
-    let content = text.splitn(2, ' ').nth(1);
+    let content = text.split_once(' ').map(|x| x.1);
     let broadcast_text = if let Some(content) = content {
         content.to_string()
     } else if let Some(reply) = msg.reply_to_message() {

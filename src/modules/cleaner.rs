@@ -1,9 +1,16 @@
+use std::sync::Arc;
+use std::time::Duration;
+
+use once_cell::sync::Lazy;
 use teloxide::prelude::*;
 use teloxide::types::ParseMode;
 
 use crate::config::AppConfig;
 use crate::db;
-use crate::utils::permissions;
+use crate::utils::{cache::TtlCache, permissions};
+
+static CLEANER_CACHE: Lazy<Arc<TtlCache<i64, db::models::CleanerSettings>>> =
+    Lazy::new(|| TtlCache::new(Duration::from_secs(60)));
 
 
 pub async fn cleanservice(bot: Bot, msg: Message, pool: db::Pool) -> ResponseResult<()> {
@@ -52,11 +59,13 @@ pub async fn cleanservice(bot: Bot, msg: Message, pool: db::Pool) -> ResponseRes
     match args[0].to_lowercase().as_str() {
         "on" | "yes" | "enable" => {
             db::queries::set_clean_service(&pool, chat_id.0, true).await.ok();
+            CLEANER_CACHE.invalidate(&chat_id.0);
             bot.send_message(chat_id, "✅ Service message cleaning enabled! Join/leave and other service messages will be auto-deleted.")
                 .await?;
         }
         "off" | "no" | "disable" => {
             db::queries::set_clean_service(&pool, chat_id.0, false).await.ok();
+            CLEANER_CACHE.invalidate(&chat_id.0);
             bot.send_message(chat_id, "❌ Service message cleaning disabled.")
                 .await?;
         }
@@ -115,11 +124,13 @@ pub async fn cleanbluetext(bot: Bot, msg: Message, pool: db::Pool) -> ResponseRe
     match args[0].to_lowercase().as_str() {
         "on" | "yes" | "enable" => {
             db::queries::set_clean_bluetext(&pool, chat_id.0, true).await.ok();
+            CLEANER_CACHE.invalidate(&chat_id.0);
             bot.send_message(chat_id, "✅ Blue text cleaning enabled! Unrecognized bot commands will be deleted.")
                 .await?;
         }
         "off" | "no" | "disable" => {
             db::queries::set_clean_bluetext(&pool, chat_id.0, false).await.ok();
+            CLEANER_CACHE.invalidate(&chat_id.0);
             bot.send_message(chat_id, "❌ Blue text cleaning disabled.")
                 .await?;
         }
@@ -133,7 +144,7 @@ pub async fn cleanbluetext(bot: Bot, msg: Message, pool: db::Pool) -> ResponseRe
 
 
 /// Delete service messages (join, left, pin, etc.) if cleaning is enabled.
-pub async fn check_service_message(bot: Bot, msg: Message, cfg: AppConfig, pool: db::Pool) -> ResponseResult<()> {
+pub async fn check_service_message(bot: Bot, msg: Message, _cfg: AppConfig, pool: db::Pool) -> ResponseResult<()> {
     let chat_id = msg.chat.id;
 
     // Only handle in groups
@@ -141,13 +152,19 @@ pub async fn check_service_message(bot: Bot, msg: Message, cfg: AppConfig, pool:
         return Ok(());
     }
 
-    let settings = db::queries::get_cleaner_settings(&pool, chat_id.0)
-        .await
-        .unwrap_or(db::models::CleanerSettings {
-            chat_id: chat_id.0,
-            clean_service: false,
-            clean_bluetext: false,
-        });
+    let settings = if let Some(cached) = CLEANER_CACHE.get(&chat_id.0) {
+        cached
+    } else {
+        let s = db::queries::get_cleaner_settings(&pool, chat_id.0)
+            .await
+            .unwrap_or(db::models::CleanerSettings {
+                chat_id: chat_id.0,
+                clean_service: false,
+                clean_bluetext: false,
+            });
+        CLEANER_CACHE.set(chat_id.0, s.clone());
+        s
+    };
 
     // Clean service messages
     if settings.clean_service {
@@ -166,27 +183,14 @@ pub async fn check_service_message(bot: Bot, msg: Message, cfg: AppConfig, pool:
         }
     }
 
-    // Clean blue text (unrecognized bot commands)
+    // Clean blue text (unrecognized bot commands).
+    // Any message starting with '/' that reaches handle_message was NOT matched by
+    // the command handler, meaning it's either an unknown command or a command
+    // directed at another bot — both should be deleted when this feature is enabled.
     if settings.clean_bluetext {
         if let Some(text) = msg.text() {
-            // If it starts with / and contains @bot_username or is an unrecognized command
             if text.starts_with('/') && !text.starts_with("//") {
-                // Only delete if it looks like an unknown command attempt
-                // (bot commands that don't match any known handler will reach the general message handler)
-                let cmd = text.split_whitespace().next().unwrap_or("");
-                if cmd.contains('@') {
-                    // Command directed at another bot — delete if bluetext cleaning is on
-                    let parts: Vec<&str> = cmd.splitn(2, '@').collect();
-                    if parts.len() == 2 {
-                        let target_bot = parts[1].to_lowercase();
-                        let my_username = cfg.bot_username.to_lowercase();
-
-                        // Only delete commands not directed at us
-                        if !target_bot.is_empty() && target_bot != my_username {
-                            bot.delete_message(chat_id, msg.id).await.ok();
-                        }
-                    }
-                }
+                bot.delete_message(chat_id, msg.id).await.ok();
             }
         }
     }

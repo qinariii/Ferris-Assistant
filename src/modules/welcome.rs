@@ -161,7 +161,7 @@ pub async fn set_welcome(bot: Bot, msg: Message, pool: db::Pool) -> ResponseResu
     }
 
     let text = msg.text().unwrap_or("");
-    let content = text.splitn(2, ' ').nth(1);
+    let content = text.split_once(' ').map(|x| x.1);
 
     let welcome_text = if let Some(content) = content {
         content.to_string()
@@ -264,7 +264,7 @@ pub async fn set_goodbye(bot: Bot, msg: Message, pool: db::Pool) -> ResponseResu
     }
 
     let text = msg.text().unwrap_or("");
-    let content = text.splitn(2, ' ').nth(1);
+    let content = text.split_once(' ').map(|x| x.1);
 
     let goodbye_text = if let Some(content) = content {
         content.to_string()

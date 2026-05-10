@@ -1,8 +1,15 @@
+use std::sync::Arc;
+use std::time::Duration;
+
+use once_cell::sync::Lazy;
 use teloxide::prelude::*;
 use teloxide::types::ParseMode;
 
 use crate::db;
-use crate::utils::permissions;
+use crate::utils::{cache::TtlCache, permissions};
+
+static DISABLE_CACHE: Lazy<Arc<TtlCache<i64, Vec<String>>>> =
+    Lazy::new(|| TtlCache::new(Duration::from_secs(60)));
 
 const DISABLEABLE_COMMANDS: &[&str] = &[
     "adminlist", "ban", "unban", "kick", "mute", "unmute", "tmute", "warn", "warns",
@@ -50,6 +57,7 @@ pub async fn disable(bot: Bot, msg: Message, pool: db::Pool) -> ResponseResult<(
     let chat_name = msg.chat.title().unwrap_or("Private");
     db::queries::upsert_chat(&pool, chat_id.0, chat_name).await.ok();
     db::queries::disable_command(&pool, chat_id.0, cmd).await.ok();
+    DISABLE_CACHE.invalidate(&chat_id.0);
 
     bot.send_message(
         chat_id,
@@ -92,6 +100,7 @@ pub async fn enable(bot: Bot, msg: Message, pool: db::Pool) -> ResponseResult<()
 
     match db::queries::enable_command(&pool, chat_id.0, cmd).await {
         Ok(true) => {
+            DISABLE_CACHE.invalidate(&chat_id.0);
             bot.send_message(
                 chat_id,
                 format!("✅ Command <code>/{}</code> has been enabled.", cmd),
@@ -136,9 +145,17 @@ pub async fn disabled_list(bot: Bot, msg: Message, pool: db::Pool) -> ResponseRe
     Ok(())
 }
 
-/// Check if a command is disabled in the current chat
+/// Check if a command is disabled in the current chat.
+/// Uses a TTL cache (60s) to avoid a DB hit on every command invocation.
 pub async fn is_disabled(pool: &db::Pool, chat_id: i64, command: &str) -> bool {
-    db::queries::is_command_disabled(pool, chat_id, command)
-        .await
-        .unwrap_or(false)
+    let disabled = if let Some(cached) = DISABLE_CACHE.get(&chat_id) {
+        cached
+    } else {
+        let list = db::queries::get_disabled_commands(pool, chat_id)
+            .await
+            .unwrap_or_default();
+        DISABLE_CACHE.set(chat_id, list.clone());
+        list
+    };
+    disabled.iter().any(|c| c == command)
 }

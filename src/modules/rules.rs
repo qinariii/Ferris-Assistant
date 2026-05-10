@@ -2,13 +2,11 @@ use teloxide::prelude::*;
 use teloxide::types::ParseMode;
 
 use crate::db;
-use crate::utils::{formatting, permissions};
+use crate::utils::{formatting, formatting::uid_to_i64, permissions};
 
 pub async fn rules(bot: Bot, msg: Message, pool: db::Pool) -> ResponseResult<()> {
     let chat_id = msg.chat.id;
-
     let chat_name = msg.chat.title().unwrap_or("Private");
-    db::queries::upsert_chat(&pool, chat_id.0, chat_name).await.ok();
 
     let rules_text = db::queries::get_rules(&pool, chat_id.0)
         .await
@@ -44,7 +42,7 @@ pub async fn setrules(bot: Bot, msg: Message, pool: db::Pool) -> ResponseResult<
     }
 
     let text = msg.text().unwrap_or("");
-    let content = text.splitn(2, ' ').nth(1);
+    let content = text.split_once(' ').map(|x| x.1);
 
     let rules_text = if let Some(content) = content {
         content.to_string()
@@ -116,7 +114,7 @@ pub async fn rules_callback(bot: Bot, q: CallbackQuery, pool: db::Pool) -> Respo
             .await?;
     } else {
         bot.answer_callback_query(q.id.clone()).await?;
-        bot.send_message(ChatId(q.from.id.0 as i64), format!("<b>📏 Rules:</b>\n\n{}", rules_text))
+        bot.send_message(ChatId(uid_to_i64(q.from.id)), format!("<b>📏 Rules:</b>\n\n{}", rules_text))
             .parse_mode(ParseMode::Html)
             .await
             .ok();

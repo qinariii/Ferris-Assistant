@@ -1,10 +1,7 @@
 ## Start & Help
 start-welcome = Hey {$first_name}! I'm {$bot_name}, a powerful group management bot built with Rust.
-help-header = Ferris Bot Help - Select a module below to see available commands.
 
 ## Admin
-admin-promote-success = {$name} has been promoted!
-admin-demote-success = {$name} has been demoted!
 admin-no-permission = You don't have permission to use this command.
 admin-bot-no-permission = I don't have the required permissions.
 
@@ -22,7 +19,6 @@ tmute-success = User has been muted for {$time}!
 ## Warns
 warn-success = {$name} has been warned! ({$count}/{$limit})
 warn-exceeded = {$name} has been {$action}! Reached {$count}/{$limit} warnings.
-warns-none = This user has no warnings.
 warns-reset = Warnings have been reset for this user.
 warn-limit-set = Warn limit set to {$limit}.
 warn-mode-set = Warn mode set to {$mode}.
@@ -40,25 +36,11 @@ filter-removed = Filter {$keyword} removed!
 filters-empty = No filters set in this chat.
 filters-all-removed = All filters have been removed!
 
-## Welcome
-welcome-enabled = Welcome messages enabled!
-welcome-disabled = Welcome messages disabled!
-welcome-updated = Welcome message updated!
-goodbye-enabled = Goodbye messages enabled!
-goodbye-disabled = Goodbye messages disabled!
-goodbye-updated = Goodbye message updated!
-
-## Rules
-rules-empty = No rules set for this chat yet.
-rules-updated = Rules updated successfully!
-rules-cleared = Rules have been cleared!
-
 ## Blacklist
 blacklist-empty = No blacklisted words in this chat.
 blacklist-added = {$word} added to blacklist!
 blacklist-removed = {$word} removed from blacklist!
 blacklist-not-found = That word is not in the blacklist.
-blacklist-mode-set = Default blacklist mode set to {$mode}.
 
 ## Purge
 purge-complete = Purge complete! Deleted: {$count}
@@ -82,7 +64,9 @@ command-not-disabled = /{$command} was not disabled.
 disabled-empty = No commands are disabled in this chat.
 
 ## Language
-lang-set = Language set to {$language}.
+lang-select = 🌐 Select a language:
+lang-set = ✅ Language set to <b>{$language}</b>.
+lang-unsupported = ❌ Supported languages: en, id
 
 ## Errors
 error-no-user = Please specify a user (reply or provide ID).

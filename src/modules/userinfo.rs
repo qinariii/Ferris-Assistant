@@ -16,7 +16,7 @@ pub async fn setme(bot: Bot, msg: Message, pool: db::Pool) -> ResponseResult<()>
     };
 
     let text = msg.text().unwrap_or("");
-    let info = text.splitn(2, ' ').nth(1).unwrap_or("").trim();
+    let info = text.split_once(' ').map(|x| x.1).unwrap_or("").trim();
 
     if info.is_empty() {
         bot.send_message(chat_id, "❌ Usage: /setme <text>\n\nSet info about yourself that others can see.")
@@ -131,7 +131,7 @@ pub async fn setbio(bot: Bot, msg: Message, cfg: AppConfig, pool: db::Pool) -> R
     }
 
     let text = msg.text().unwrap_or("");
-    let bio = text.splitn(2, ' ').nth(1).unwrap_or("").trim();
+    let bio = text.split_once(' ').map(|x| x.1).unwrap_or("").trim();
 
     if bio.is_empty() {
         bot.send_message(chat_id, "❌ Usage: Reply to a user with /setbio <text>")

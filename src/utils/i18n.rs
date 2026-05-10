@@ -1,10 +1,17 @@
 use std::collections::HashMap;
 use std::fs;
+use std::sync::Arc;
+use std::time::Duration;
 
 use fluent_bundle::concurrent::FluentBundle;
 use fluent_bundle::{FluentArgs, FluentResource, FluentValue};
 use once_cell::sync::Lazy;
 use unic_langid::LanguageIdentifier;
+
+use crate::utils::cache::TtlCache;
+
+static LANG_CACHE: Lazy<Arc<TtlCache<i64, String>>> =
+    Lazy::new(|| TtlCache::new(Duration::from_secs(120)));
 
 /// Supported languages
 const SUPPORTED_LANGS: &[&str] = &["en", "id"];
@@ -114,17 +121,28 @@ fn build_args<'a>(args: Option<&[(&'a str, &'a str)]>) -> Option<FluentArgs<'a>>
     })
 }
 
-/// Get the language code for a chat. Defaults to "en".
+/// Get the language code for a chat. Cached for 120s to avoid a DB hit per message.
 pub async fn get_chat_lang(pool: &crate::db::Pool, chat_id: i64) -> String {
-    crate::db::queries::get_chat(pool, chat_id)
+    if let Some(lang) = LANG_CACHE.get(&chat_id) {
+        return lang;
+    }
+    let lang = crate::db::queries::get_chat(pool, chat_id)
         .await
         .ok()
         .flatten()
         .map(|c| c.language)
-        .unwrap_or_else(|| "en".to_string())
+        .unwrap_or_else(|| "en".to_string());
+    LANG_CACHE.set(chat_id, lang.clone());
+    lang
 }
 
-/// Convenience: get translated text using chat language from DB.
+/// Invalidate the cached language for a chat.
+/// Call this after the language is changed via /setlang or lang callback.
+pub fn invalidate_lang_cache(chat_id: i64) {
+    LANG_CACHE.invalidate(&chat_id);
+}
+
+/// Convenience: get translated text using chat language (cached).
 /// If chat has no language set, defaults to "en".
 #[allow(dead_code)]
 pub async fn t_chat(
@@ -133,11 +151,6 @@ pub async fn t_chat(
     key: &str,
     args: Option<&[(&str, &str)]>,
 ) -> String {
-    let lang = crate::db::queries::get_chat(pool, chat_id)
-        .await
-        .ok()
-        .flatten()
-        .map(|c| c.language)
-        .unwrap_or_else(|| "en".to_string());
+    let lang = get_chat_lang(pool, chat_id).await;
     t(&lang, key, args)
 }

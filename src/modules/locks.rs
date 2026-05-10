@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use once_cell::sync::Lazy;
 use teloxide::prelude::*;
-use teloxide::types::{MessageEntity, MessageEntityKind, ParseMode};
+use teloxide::types::{MessageEntityKind, ParseMode};
 
 use crate::db;
 use crate::utils::{cache::TtlCache, i18n, permissions};
@@ -244,5 +244,11 @@ fn has_url(msg: &Message) -> bool {
 }
 
 fn has_rtl(text: &str) -> bool {
-    text.chars().any(|c| ('\u{0600}'..='\u{06FF}').contains(&c))
+    text.chars().any(|c| {
+        ('\u{0590}'..='\u{05FF}').contains(&c) // Hebrew
+            || ('\u{0600}'..='\u{06FF}').contains(&c) // Arabic
+            || ('\u{0750}'..='\u{077F}').contains(&c) // Arabic Supplement
+            || ('\u{FB50}'..='\u{FDFF}').contains(&c) // Arabic Presentation Forms-A
+            || ('\u{FE70}'..='\u{FEFF}').contains(&c) // Arabic Presentation Forms-B
+    })
 }

@@ -2,30 +2,8 @@ use rand::Rng;
 use teloxide::prelude::*;
 use teloxide::types::{ChatMemberUpdated, ChatPermissions, InlineKeyboardButton, InlineKeyboardMarkup, ParseMode};
 
-use crate::config::AppConfig;
 use crate::db;
-use crate::utils::{formatting, formatting::uid_to_i64, i18n, permissions};
-
-// ---------------------------------------------------------------------------
-// Helper: Safe kick with retry, without arbitrary sleep
-// ---------------------------------------------------------------------------
-
-/// Kick user: ban and then unban using exponential backoff.
-/// Replaces the `ban -> sleep(1s) -> unban` pattern, which is prone to race conditions.
-async fn safe_kick(bot: &Bot, chat_id: ChatId, user_id: UserId) {
-    if bot.ban_chat_member(chat_id, user_id).await.is_err() {
-        return;
-    }
-    for attempt in 0u32..3 {
-        match bot.unban_chat_member(chat_id, user_id).await {
-            Ok(_) => return,
-            Err(_) => {
-                let delay = tokio::time::Duration::from_millis(200 * (1u64 << attempt));
-                tokio::time::sleep(delay).await;
-            }
-        }
-    }
-}
+use crate::utils::{formatting, formatting::uid_to_i64, i18n, kick::safe_kick, permissions};
 
 // ---------------------------------------------------------------------------
 // Captcha generators
@@ -115,6 +93,49 @@ fn build_captcha_keyboard(options: &[String], user_id: i64) -> InlineKeyboardMar
         })
         .collect();
     InlineKeyboardMarkup::new(buttons)
+}
+
+// ---------------------------------------------------------------------------
+// Startup cleanup: recover orphaned mutes from a previous bot run
+// ---------------------------------------------------------------------------
+
+/// Called once at startup. Finds all captcha_attempts left in the DB from a
+/// previous run (i.e. the bot was restarted while users were mid-captcha),
+/// restores their chat permissions, and removes the stale records so no one
+/// stays muted permanently.
+pub async fn cleanup_captcha_on_startup(bot: &Bot, pool: &db::Pool) {
+    let attempts = match db::queries::get_all_captcha_attempts(pool).await {
+        Ok(a) => a,
+        Err(e) => {
+            log::error!("captcha startup cleanup: failed to fetch attempts: {}", e);
+            return;
+        }
+    };
+
+    if attempts.is_empty() {
+        return;
+    }
+
+    log::info!(
+        "captcha startup: {} orphaned attempt(s) found, restoring permissions...",
+        attempts.len()
+    );
+
+    for attempt in &attempts {
+        let user_id = UserId(attempt.user_id as u64);
+        let chat_id = ChatId(attempt.chat_id);
+
+        let perms = match bot.get_chat(chat_id).await {
+            Ok(chat) => chat.permissions().unwrap_or_else(ChatPermissions::all),
+            Err(_) => ChatPermissions::all(),
+        };
+        bot.restrict_chat_member(chat_id, user_id, perms).await.ok();
+        db::queries::delete_captcha_attempt(pool, attempt.user_id, attempt.chat_id)
+            .await
+            .ok();
+    }
+
+    log::info!("captcha startup: cleanup complete.");
 }
 
 // ---------------------------------------------------------------------------
@@ -441,7 +462,6 @@ pub async fn send_captcha_on_join(
             // FIX: The task is canceled if the user answers correctly
             _ = cancel_rx => {
                 log::debug!("captcha timeout task cancelled for user {}", user_id.0);
-                return;
             }
             _ = &mut sleep => {
                 // Check if the attempt is still active (the user hasn't responded yet)
@@ -457,7 +477,7 @@ pub async fn send_captcha_on_join(
                             // The user has been muted from the start; no further action is needed
                         }
                         _ => {
-                            safe_kick(&bot_clone, chat_id, user_id).await;
+                            safe_kick(&bot_clone, chat_id, user_id).await.ok();
                         }
                     }
 
@@ -664,7 +684,7 @@ pub async fn captcha_callback(
                     // user has been muted
                 }
                 _ => {
-                    safe_kick(&bot, chat_id, UserId(target_user_id as u64)).await;
+                    safe_kick(&bot, chat_id, UserId(target_user_id as u64)).await.ok();
                 }
             }
 

@@ -20,56 +20,57 @@ pub fn start_keyboard(bot_username: &str) -> InlineKeyboardMarkup {
 pub fn help_main_keyboard() -> InlineKeyboardMarkup {
     InlineKeyboardMarkup::new(vec![
         vec![
-            InlineKeyboardButton::callback("👮 Admin", "help_admin"),
-            InlineKeyboardButton::callback("🚫 Bans", "help_bans"),
-            InlineKeyboardButton::callback("🔇 Mutes", "help_mutes"),
+            InlineKeyboardButton::callback("Admin", "help_admin"),
+            InlineKeyboardButton::callback("AFK", "help_afk"),
+            InlineKeyboardButton::callback("Antiflood", "help_antiflood"),
         ],
         vec![
-            InlineKeyboardButton::callback("⚠️ Warns", "help_warns"),
-            InlineKeyboardButton::callback("📝 Notes", "help_notes"),
-            InlineKeyboardButton::callback("🔍 Filters", "help_filters"),
+            InlineKeyboardButton::callback("Backups", "help_backups"),
+            InlineKeyboardButton::callback("Bans", "help_bans"),
+            InlineKeyboardButton::callback("Bio", "help_userinfo"),
         ],
         vec![
-            InlineKeyboardButton::callback("👋 Welcome", "help_welcome"),
-            InlineKeyboardButton::callback("📏 Rules", "help_rules"),
-            InlineKeyboardButton::callback("🚫 Blacklist", "help_blacklist"),
+            InlineKeyboardButton::callback("Blacklist", "help_blacklist"),
+            InlineKeyboardButton::callback("Captcha", "help_captcha"),
+            InlineKeyboardButton::callback("Cleaner", "help_cleaner"),
         ],
         vec![
-            InlineKeyboardButton::callback("🧹 Purges", "help_purges"),
-            InlineKeyboardButton::callback("📌 Pins", "help_pins"),
-            InlineKeyboardButton::callback("🌊 Antiflood", "help_antiflood"),
+            InlineKeyboardButton::callback("Connect", "help_connections"),
+            InlineKeyboardButton::callback("Devs", "help_devs"),
+            InlineKeyboardButton::callback("Disable", "help_disable"),
         ],
         vec![
-            InlineKeyboardButton::callback("🔒 Disable", "help_disable"),
-            InlineKeyboardButton::callback("🔒 Locks", "help_locks"),
-            InlineKeyboardButton::callback("📋 Logs", "help_logchannel"),
+            InlineKeyboardButton::callback("Feds", "help_feds"),
+            InlineKeyboardButton::callback("Filters", "help_filters"),
+            InlineKeyboardButton::callback("Gbans", "help_gbans"),
         ],
         vec![
-            InlineKeyboardButton::callback("📢 Reports", "help_reports"),
-            InlineKeyboardButton::callback("🌐 Gbans", "help_gbans"),
-            InlineKeyboardButton::callback("💾 Backups", "help_backups"),
+            InlineKeyboardButton::callback("Locks", "help_locks"),
+            InlineKeyboardButton::callback("Logs", "help_logchannel"),
+            InlineKeyboardButton::callback("Misc", "help_misc"),
         ],
         vec![
-            InlineKeyboardButton::callback("🔗 Connect", "help_connections"),
-            InlineKeyboardButton::callback("💤 AFK", "help_afk"),
-            InlineKeyboardButton::callback("🎨 Stickers", "help_blstickers"),
+            InlineKeyboardButton::callback("Mutes", "help_mutes"),
+            InlineKeyboardButton::callback("Notes", "help_notes"),
+            InlineKeyboardButton::callback("Perms", "help_chatperms"),
         ],
         vec![
-            InlineKeyboardButton::callback("🛡️ Perms", "help_chatperms"),
-            InlineKeyboardButton::callback("👥 Users", "help_users"),
-            InlineKeyboardButton::callback("📊 Misc", "help_misc"),
+            InlineKeyboardButton::callback("Pins", "help_pins"),
+            InlineKeyboardButton::callback("Purges", "help_purges"),
+            InlineKeyboardButton::callback("React", "help_reactions"),
         ],
         vec![
-            InlineKeyboardButton::callback("🔐 Captcha", "help_captcha"),
-            InlineKeyboardButton::callback("🛠 Devs", "help_devs"),
-            InlineKeyboardButton::callback("🏛 Feds", "help_feds"),
+            InlineKeyboardButton::callback("Reports", "help_reports"),
+            InlineKeyboardButton::callback("Rules", "help_rules"),
+            InlineKeyboardButton::callback("Sed", "help_sed"),
         ],
         vec![
-            InlineKeyboardButton::callback("✏️ Sed", "help_sed"),
-            InlineKeyboardButton::callback("📋 Bio", "help_userinfo"),
-            InlineKeyboardButton::callback("🧹 Cleaner", "help_cleaner"),
-            InlineKeyboardButton::callback("⚡ React", "help_reactions"),
+            InlineKeyboardButton::callback("Stickers", "help_blstickers"),
+            InlineKeyboardButton::callback("Users", "help_users"),
+            InlineKeyboardButton::callback("Warns", "help_warns"),
+            InlineKeyboardButton::callback("Welcome", "help_welcome"),
         ],
+        vec![InlineKeyboardButton::callback("Formatting", "fmt_main")],
         vec![InlineKeyboardButton::callback("« Back", "start_back")],
     ])
 }
@@ -81,6 +82,45 @@ pub fn back_to_help_keyboard() -> InlineKeyboardMarkup {
     )]])
 }
 
+pub fn help_module_keyboard(_module: &str) -> InlineKeyboardMarkup {
+    InlineKeyboardMarkup::new(vec![
+        vec![InlineKeyboardButton::callback("« Back", "help_main".to_string())],
+    ])
+}
+
+pub fn help_notes_keyboard() -> InlineKeyboardMarkup {
+    InlineKeyboardMarkup::new(vec![
+        vec![
+            InlineKeyboardButton::callback("Example usage", "example_notes".to_string()),
+            InlineKeyboardButton::callback("Formatting", "fmt_notes".to_string()),
+        ],
+        vec![InlineKeyboardButton::callback("« Back", "help_main".to_string())],
+    ])
+}
+
+pub fn formatting_main_keyboard(module: &str) -> InlineKeyboardMarkup {
+    InlineKeyboardMarkup::new(vec![
+        vec![
+            InlineKeyboardButton::callback("Markdown Formatting", format!("fmtsub_markdown_{}", module)),
+            InlineKeyboardButton::callback("Fillings", format!("fmtsub_fillings_{}", module)),
+        ],
+        vec![InlineKeyboardButton::callback("« Back", format!("help_{}", module))],
+    ])
+}
+
+pub fn formatting_sub_keyboard(module: &str) -> InlineKeyboardMarkup {
+    InlineKeyboardMarkup::new(vec![
+        vec![InlineKeyboardButton::callback("« Back", format!("fmt_{}", module))],
+    ])
+}
+
+pub fn example_back_keyboard(module: &str) -> InlineKeyboardMarkup {
+    InlineKeyboardMarkup::new(vec![
+        vec![InlineKeyboardButton::callback("« Back", format!("help_{}", module))],
+    ])
+}
+
+#[allow(dead_code)]
 pub fn admin_keyboard() -> InlineKeyboardMarkup {
     InlineKeyboardMarkup::new(vec![
         vec![
@@ -89,13 +129,6 @@ pub fn admin_keyboard() -> InlineKeyboardMarkup {
         ],
         vec![InlineKeyboardButton::callback("« Back to Help", "help_main")],
     ])
-}
-
-pub fn ban_confirm_keyboard(user_id: u64) -> InlineKeyboardMarkup {
-    InlineKeyboardMarkup::new(vec![vec![
-        InlineKeyboardButton::callback("✅ Yes, Ban", format!("ban_confirm_{}", user_id)),
-        InlineKeyboardButton::callback("❌ Cancel", "ban_cancel"),
-    ]])
 }
 
 pub fn unban_keyboard(user_id: u64) -> InlineKeyboardMarkup {
@@ -161,6 +194,7 @@ pub fn goodbye_settings_keyboard(enabled: bool) -> InlineKeyboardMarkup {
     ])
 }
 
+#[allow(dead_code)]
 pub fn rules_keyboard(chat_id: i64) -> InlineKeyboardMarkup {
     InlineKeyboardMarkup::new(vec![vec![InlineKeyboardButton::callback(
         "📏 Rules",
@@ -212,6 +246,17 @@ pub fn language_keyboard() -> InlineKeyboardMarkup {
     ])
 }
 
+pub fn language_command_keyboard() -> InlineKeyboardMarkup {
+    InlineKeyboardMarkup::new(vec![
+        vec![
+            InlineKeyboardButton::callback("🇬🇧 English", "lang_en"),
+            InlineKeyboardButton::callback("🇮🇩 Indonesia", "lang_id"),
+        ],
+        vec![InlineKeyboardButton::callback("❌ Close", "close")],
+    ])
+}
+
+#[allow(dead_code)]
 pub fn close_keyboard() -> InlineKeyboardMarkup {
     InlineKeyboardMarkup::new(vec![vec![InlineKeyboardButton::callback(
         "❌ Close",
@@ -219,9 +264,3 @@ pub fn close_keyboard() -> InlineKeyboardMarkup {
     )]])
 }
 
-pub fn purge_confirm_keyboard(from_id: i64, to_id: i64) -> InlineKeyboardMarkup {
-    InlineKeyboardMarkup::new(vec![vec![
-        InlineKeyboardButton::callback("✅ Yes", format!("purge_{}_{}", from_id, to_id)),
-        InlineKeyboardButton::callback("❌ No", "close"),
-    ]])
-}

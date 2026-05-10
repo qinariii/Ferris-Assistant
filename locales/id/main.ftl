@@ -1,10 +1,7 @@
 ## Start & Help
 start-welcome = Hai {$first_name}! Saya {$bot_name}, bot manajemen grup yang dibuat dengan Rust.
-help-header = Bantuan Ferris Bot - Pilih modul di bawah untuk melihat perintah yang tersedia.
 
 ## Admin
-admin-promote-success = {$name} telah dipromosikan!
-admin-demote-success = {$name} telah didemosikan!
 admin-no-permission = Kamu tidak memiliki izin untuk menggunakan perintah ini.
 admin-bot-no-permission = Saya tidak memiliki izin yang diperlukan.
 
@@ -22,7 +19,6 @@ tmute-success = Pengguna telah dimute selama {$time}!
 ## Warns
 warn-success = {$name} telah diperingatkan! ({$count}/{$limit})
 warn-exceeded = {$name} telah di-{$action}! Mencapai {$count}/{$limit} peringatan.
-warns-none = Pengguna ini tidak memiliki peringatan.
 warns-reset = Peringatan telah direset untuk pengguna ini.
 warn-limit-set = Batas peringatan diatur ke {$limit}.
 warn-mode-set = Mode peringatan diatur ke {$mode}.
@@ -40,25 +36,11 @@ filter-removed = Filter {$keyword} dihapus!
 filters-empty = Tidak ada filter yang diatur di chat ini.
 filters-all-removed = Semua filter telah dihapus!
 
-## Welcome
-welcome-enabled = Pesan selamat datang diaktifkan!
-welcome-disabled = Pesan selamat datang dinonaktifkan!
-welcome-updated = Pesan selamat datang diperbarui!
-goodbye-enabled = Pesan selamat tinggal diaktifkan!
-goodbye-disabled = Pesan selamat tinggal dinonaktifkan!
-goodbye-updated = Pesan selamat tinggal diperbarui!
-
-## Rules
-rules-empty = Belum ada aturan yang ditetapkan untuk chat ini.
-rules-updated = Aturan berhasil diperbarui!
-rules-cleared = Aturan telah dihapus!
-
 ## Blacklist
 blacklist-empty = Tidak ada kata yang masuk daftar hitam di chat ini.
 blacklist-added = {$word} ditambahkan ke daftar hitam!
 blacklist-removed = {$word} dihapus dari daftar hitam!
 blacklist-not-found = Kata tersebut tidak ada di daftar hitam.
-blacklist-mode-set = Mode daftar hitam default diatur ke {$mode}.
 
 ## Purge
 purge-complete = Purge selesai! Dihapus: {$count}
@@ -82,7 +64,9 @@ command-not-disabled = /{$command} tidak dinonaktifkan.
 disabled-empty = Tidak ada perintah yang dinonaktifkan di chat ini.
 
 ## Language
-lang-set = Bahasa diatur ke {$language}.
+lang-select = 🌐 Pilih bahasa:
+lang-set = ✅ Bahasa diatur ke <b>{$language}</b>.
+lang-unsupported = ❌ Bahasa yang didukung: en, id
 
 ## Errors
 error-no-user = Silakan tentukan pengguna (balas atau berikan ID).

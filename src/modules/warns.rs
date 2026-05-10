@@ -4,7 +4,7 @@ use teloxide::types::{ChatPermissions, ParseMode};
 use crate::config::AppConfig;
 use crate::db;
 use crate::keyboards::inline;
-use crate::utils::{extraction, formatting, formatting::uid_to_i64, i18n, permissions, LogErrExt};
+use crate::utils::{extraction, formatting, formatting::uid_to_i64, i18n, kick::safe_kick, permissions, LogErrExt};
 
 pub async fn warn(bot: Bot, msg: Message, cfg: AppConfig, pool: db::Pool) -> ResponseResult<()> {
     let chat_id = msg.chat.id;
@@ -83,9 +83,7 @@ pub async fn warn(bot: Bot, msg: Message, cfg: AppConfig, pool: db::Pool) -> Res
                 "banned"
             }
             "kick" => {
-                bot.ban_chat_member(chat_id, target_id).await.ok();
-                tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-                bot.unban_chat_member(chat_id, target_id).await.ok();
+                safe_kick(&bot, chat_id, target_id).await.ok();
                 "kicked"
             }
             "mute" => {
@@ -177,7 +175,7 @@ pub async fn warns(bot: Bot, msg: Message, pool: db::Pool) -> ResponseResult<()>
             "\n{}. {} <i>({})</i>",
             i + 1,
             formatting::html_escape(&w.reason),
-            w.created_at
+            w.created_at.format("%Y-%m-%d %H:%M")
         ));
     }
 
@@ -258,7 +256,7 @@ pub async fn setwarnlimit(bot: Bot, msg: Message, pool: db::Pool) -> ResponseRes
     }
 
     let limit: i32 = match args[0].parse() {
-        Ok(n) if n >= 1 && n <= 100 => n,
+        Ok(n) if (1..=100).contains(&n) => n,
         _ => {
             bot.send_message(chat_id, i18n::t(&lang, "warns-limit-invalid", None))
                 .await?;
@@ -379,6 +377,8 @@ pub async fn warnmode_callback(bot: Bot, q: CallbackQuery, pool: db::Pool) -> Re
         return Ok(());
     }
 
+    let chat_name = msg.chat().title().unwrap_or("Unknown");
+    db::queries::upsert_chat(&pool, chat_id.0, chat_name).await.log_err("warns::upsert_chat_cb");
     db::queries::set_warn_mode(&pool, chat_id.0, mode).await.log_err("warns::set_warn_mode_cb");
 
     bot.answer_callback_query(q.id.clone())

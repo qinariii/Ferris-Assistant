@@ -1,297 +1,430 @@
 use teloxide::prelude::*;
 use teloxide::types::ParseMode;
 
+use crate::db;
 use crate::keyboards::inline;
+use crate::utils::i18n;
 
-const HELP_ADMIN: &str = "\
-<b>👮 Admin Module</b>\n\n\
-<b>Commands:</b>\n\
-/promote &lt;user&gt; - Promote a user to admin\n\
-/demote &lt;user&gt; - Demote an admin\n\
-/adminlist - List all admins in the group\n\
-/title &lt;title&gt; - Set admin title (reply to user)\n\n\
-<i>Note: Both you and the bot need appropriate permissions.</i>";
+fn help_text(lang: &str, key: &str) -> String {
+    i18n::t(lang, key, None)
+}
 
-const HELP_BANS: &str = "\
+// Help texts below are legacy fallbacks — translations are loaded from locales/{lang}/help.ftl via i18n
+
+const _HELP_BANS: &str = "\
 <b>🚫 Bans Module</b>\n\n\
-<b>Commands:</b>\n\
-/ban &lt;user&gt; [reason] - Ban a user\n\
-/unban &lt;user&gt; - Unban a user\n\
-/kick &lt;user&gt; - Kick a user (they can rejoin)\n\
-/tban &lt;user&gt; &lt;time&gt; - Temporarily ban (e.g. 1h, 30m, 1d)\n\
-/dkick &lt;reply&gt; - Delete message and kick user\n\
-/dban &lt;reply&gt; - Delete message and ban user\n\n\
+Sometimes users can be annoying and you might want to remove them from your chat!\n\n\
+<b>User Commands:</b>\n\
+- /kickme: Kicks the user who issued the command.\n\n\
+<b>Admin Commands:</b>\n\
+- /ban <code>&lt;user&gt;</code>: Ban a user. (via handle, or reply)\n\
+- /sban <code>&lt;user&gt;</code>: Ban silently — no notification and deletes your command.\n\
+- /dban <code>&lt;reply&gt;</code>: Ban a user and delete the replied message.\n\
+- /tban <code>&lt;user&gt;</code> <code>&lt;time&gt;</code>: Temp ban for x time. <code>m</code> = minutes, <code>h</code> = hours, <code>d</code> = days.\n\
+- /kick <code>&lt;user&gt;</code>: Kick a user (they can rejoin).\n\
+- /dkick <code>&lt;reply&gt;</code>: Delete message and kick user.\n\
+- /unban <code>&lt;user&gt;</code>: Unban a user.\n\n\
+<b>Examples:</b>\n\
+<code>/ban @spammer Spamming links</code>\n\
+<code>/tban @user 2h Cooldown</code>\n\
+<code>/dban</code> (reply to offending message)\n\n\
 <i>Reply to a message or provide a user ID/username.</i>";
 
-const HELP_MUTES: &str = "\
+const _HELP_MUTES: &str = "\
 <b>🔇 Mutes Module</b>\n\n\
-<b>Commands:</b>\n\
-/mute &lt;user&gt; [reason] - Mute a user\n\
-/unmute &lt;user&gt; - Unmute a user\n\
-/tmute &lt;user&gt; &lt;time&gt; - Temporarily mute (e.g. 1h, 30m)\n\n\
-<i>Muted users cannot send messages in the group.</i>";
+<b>Admin Commands:</b>\n\
+- /mute <code>&lt;user&gt;</code>: Silence a user. Can also be used as a reply.\n\
+- /tmute <code>&lt;user&gt;</code> <code>&lt;time&gt;</code>: Mute for x time. <code>m</code> = minutes, <code>h</code> = hours, <code>d</code> = days.\n\
+- /unmute <code>&lt;user&gt;</code>: Unmute a user.\n\n\
+<b>Examples:</b>\n\
+<code>/mute @user</code>\n\
+<code>/tmute @user 30m</code>\n\n\
+<i>Muted users cannot send any messages in the group.</i>";
 
-const HELP_WARNS: &str = "\
+const _HELP_WARNS: &str = "\
 <b>⚠️ Warns Module</b>\n\n\
-<b>Commands:</b>\n\
-/warn &lt;user&gt; [reason] - Warn a user\n\
-/warns &lt;user&gt; - Check user's warnings\n\
-/resetwarns &lt;user&gt; - Reset all warns for a user\n\
-/setwarnlimit &lt;number&gt; - Set max warns before action\n\
-/setwarnmode &lt;ban/kick/mute&gt; - Set action on max warns\n\n\
-<i>Users exceeding the warn limit will be actioned.</i>";
+Keep your members in check with warnings; stop them getting out of control!\n\n\
+<b>Admin Commands:</b>\n\
+- /warn <code>&lt;user&gt;</code> <code>[reason]</code>: Warn a user.\n\
+- /dwarn <code>&lt;reason&gt;</code>: Warn by reply and delete their message.\n\
+- /swarn <code>&lt;reason&gt;</code>: Silently warn, delete your message.\n\
+- /warns <code>&lt;user&gt;</code>: See a user's warnings.\n\
+- /rmwarn: Remove a user's latest warning.\n\
+- /resetwarns <code>&lt;user&gt;</code>: Reset all warnings to 0.\n\
+- /setwarnlimit <code>&lt;number&gt;</code>: Set number of warnings before action.\n\
+- /setwarnmode <code>&lt;ban/kick/mute&gt;</code>: Set the action on max warns.\n\n\
+<b>Examples:</b>\n\
+<code>/warn @user For disobeying the rules</code>\n\
+<code>/setwarnlimit 5</code>\n\
+<code>/setwarnmode mute</code>\n\n\
+<i>If you're looking for automated warnings, check the Blacklist module!</i>";
 
-const HELP_NOTES: &str = "\
+const _HELP_NOTES: &str = "\
 <b>📝 Notes Module</b>\n\n\
-<b>Commands:</b>\n\
-/save &lt;name&gt; &lt;content&gt; - Save a note\n\
-/get &lt;name&gt; - Retrieve a note\n\
-/notes - List all notes\n\
-/clear &lt;name&gt; - Delete a note\n\
-#notename - Quick get note\n\n\
-<i>Notes can contain text with formatting.</i>";
+Save data for future users with notes! A phone number, a nice gif, a funny picture — anything!\n\n\
+<b>User Commands:</b>\n\
+- /get <code>&lt;notename&gt;</code>: Get a note.\n\
+- <code>#notename</code>: Same as /get.\n\
+- /notes: List all saved notes in this chat.\n\
+- /saved: Same as /notes.\n\n\
+<b>Admin Commands:</b>\n\
+- /save <code>&lt;notename&gt;</code> <code>&lt;text&gt;</code>: Save a new note. Replying to a message will save that message.\n\
+- /clear <code>&lt;notename&gt;</code>: Delete the associated note.\n\
+- /clearall: Delete ALL notes in a chat. Cannot be undone.\n\n\
+<b>Examples:</b>\n\
+<code>/save rules Please follow the group rules!</code>\n\
+<code>/get rules</code>\n\
+<code>#rules</code>";
 
-const HELP_FILTERS: &str = "\
+const _HELP_FILTERS: &str = "\
 <b>🔍 Filters Module</b>\n\n\
+Filters are case insensitive; every time someone says your trigger words, the bot will reply something else!\n\n\
 <b>Commands:</b>\n\
-/filter &lt;keyword&gt; &lt;reply&gt; - Add a filter\n\
-/filters - List all filters\n\
-/stop &lt;keyword&gt; - Remove a filter\n\
-/stopall - Remove all filters\n\n\
-<i>Bot will auto-reply when keyword is detected.</i>";
+- /filter <code>&lt;keyword&gt;</code> <code>&lt;reply&gt;</code>: Add an auto-reply filter. Quote for multi-word triggers.\n\
+- /filters: List all chat filters.\n\
+- /stop <code>&lt;keyword&gt;</code>: Stop the bot from replying to that trigger.\n\
+- /stopall: Remove ALL filters. Cannot be undone.\n\n\
+<b>Examples:</b>\n\
+<code>/filter hello Hello there! How are you?</code>\n\
+<code>/filter \"hello friend\" Hello back! Long time no see!</code>\n\
+<code>/stop hello</code>\n\n\
+<i>To save a file, image, gif, or any other attachment, simply reply to the file with:</i>\n\
+<code>/filter trigger</code>";
 
-const HELP_WELCOME: &str = "\
-<b>👋 Welcome Module</b>\n\n\
-<b>Commands:</b>\n\
-/welcome &lt;on/off&gt; - Toggle welcome messages\n\
-/setwelcome &lt;text&gt; - Set welcome message\n\
-/goodbye &lt;on/off&gt; - Toggle goodbye messages\n\
-/setgoodbye &lt;text&gt; - Set goodbye message\n\n\
+const _HELP_WELCOME: &str = "\
+<b>👋 Welcome/Goodbye Module</b>\n\n\
+Welcome new members to your groups or say goodbye after they leave!\n\n\
+<b>Admin Commands:</b>\n\
+- /setwelcome <code>&lt;text&gt;</code>: Set welcome text for group.\n\
+- /welcome <code>&lt;on/off&gt;</code>: Enable or disable welcome messages.\n\
+- /resetwelcome: Reset the welcome message to default.\n\
+- /setgoodbye <code>&lt;text&gt;</code>: Set goodbye text for group.\n\
+- /goodbye <code>&lt;on/off&gt;</code>: Enable or disable goodbye messages.\n\
+- /resetgoodbye: Reset the goodbye message to default.\n\
+- /cleanservice <code>&lt;on/off&gt;</code>: Delete 'x joined the group' notifications.\n\n\
 <b>Placeholders:</b>\n\
-{first_name}, {last_name}, {full_name}, {username}, {mention}, {id}, {chat_name}";
+<code>{first_name}</code>, <code>{last_name}</code>, <code>{full_name}</code>, <code>{username}</code>, <code>{mention}</code>, <code>{id}</code>, <code>{chat_name}</code>\n\n\
+<b>Example:</b>\n\
+<code>/setwelcome Hey {first_name}, welcome to {chat_name}! Read the /rules first.</code>";
 
-const HELP_RULES: &str = "\
+const _HELP_RULES: &str = "\
 <b>📏 Rules Module</b>\n\n\
-<b>Commands:</b>\n\
-/rules - View group rules\n\
-/setrules &lt;text&gt; - Set group rules\n\
-/clearrules - Clear all rules\n\n\
-<i>Set rules to inform members about group guidelines.</i>";
+Every chat works with different rules; this module will help make those rules clearer!\n\n\
+<b>User Commands:</b>\n\
+- /rules: Check the current chat rules.\n\n\
+<b>Admin Commands:</b>\n\
+- /setrules <code>&lt;text&gt;</code>: Set the rules for this chat.\n\
+- /clearrules: Clear the rules for this chat.\n\n\
+<b>Example:</b>\n\
+<code>/setrules 1. No spam\n2. Be respectful\n3. English only</code>";
 
-const HELP_BLACKLIST: &str = "\
+const _HELP_BLACKLIST: &str = "\
 <b>🚫 Blacklist Module</b>\n\n\
-<b>Commands:</b>\n\
-/blacklist - View blacklisted words\n\
-/addblacklist &lt;word&gt; - Add word to blacklist\n\
-/rmblacklist &lt;word&gt; - Remove word from blacklist\n\
-/blacklistmode &lt;delete/warn/mute/kick/ban&gt; - Set action\n\n\
-<i>Messages containing blacklisted words will be actioned.</i>";
+<b>User Commands:</b>\n\
+- /blacklist: View current blacklisted words.\n\n\
+<b>Admin Commands:</b>\n\
+- /addblacklist <code>&lt;word&gt;</code>: Add a word to the blacklist.\n\
+- /rmblacklist <code>&lt;word&gt;</code>: Remove a word from the blacklist.\n\
+- /blacklistmode <code>&lt;delete/warn/mute/kick/ban&gt;</code>: Set action for blacklisted words.\n\n\
+<b>Examples:</b>\n\
+<code>/addblacklist spam</code>\n\
+<code>/blacklistmode kick</code>\n\n\
+<i>Messages containing blacklisted words will trigger the configured action.</i>";
 
-const HELP_PURGES: &str = "\
+const _HELP_PURGES: &str = "\
 <b>🧹 Purges Module</b>\n\n\
-<b>Commands:</b>\n\
-/purge - Delete messages from replied message to current\n\
-/del - Delete the replied message\n\n\
-<i>Bot needs delete message permission.</i>";
+<b>Admin Commands:</b>\n\
+- /purge: Deletes all messages between this and the replied-to message.\n\
+- /purge <code>&lt;number&gt;</code>: Deletes the replied message and X messages following it.\n\
+- /del: Deletes the message you replied to.\n\n\
+<b>Examples:</b>\n\
+→ Reply to a message, then send <code>/purge</code>\n\
+→ <code>/del</code> (reply to the offending message)\n\n\
+<i>Bot needs \"Delete Messages\" permission.</i>";
 
-const HELP_PINS: &str = "\
+const _HELP_PINS: &str = "\
 <b>📌 Pins Module</b>\n\n\
-<b>Commands:</b>\n\
-/pin - Pin the replied message\n\
-/unpin - Unpin the current pinned message\n\
-/unpinall - Unpin all pinned messages\n\n\
-<i>Bot needs pin message permission.</i>";
+Keep your chat up to date on the latest news with pinned messages!\n\n\
+<b>User Commands:</b>\n\
+- /pinned: Get the current pinned message.\n\n\
+<b>Admin Commands:</b>\n\
+- /pin: Pin the message you replied to. Add <code>loud</code> or <code>notify</code> to notify members.\n\
+- /unpin: Unpin the current pinned message.\n\
+- /unpinall: Unpin all pinned messages.\n\n\
+<b>Examples:</b>\n\
+<code>/pin</code> (reply to a message)\n\
+<code>/pin loud</code> (pin with notification)\n\n\
+<i>Bot needs \"Pin Messages\" permission.</i>";
 
-const HELP_ANTIFLOOD: &str = "\
+const _HELP_ANTIFLOOD: &str = "\
 <b>🌊 Antiflood Module</b>\n\n\
-<b>Commands:</b>\n\
-/setflood &lt;number/off&gt; - Set flood limit\n\
-/flood - View current flood settings\n\
-/setfloodmode &lt;ban/kick/mute&gt; - Set flood action\n\n\
-<i>Users sending too many messages will be actioned.</i>";
+You know how sometimes, people join, send 100 messages, and ruin your chat? With antiflood, that happens no more!\n\n\
+<b>Admin Commands:</b>\n\
+- /flood: Get the current antiflood settings.\n\
+- /setflood <code>&lt;number/off&gt;</code>: Set messages limit after which to take action. Set to <code>0</code>, <code>off</code>, or <code>no</code> to disable.\n\
+- /setfloodmode <code>&lt;ban/kick/mute&gt;</code>: Choose which action to take on a flooding user.\n\n\
+<b>Examples:</b>\n\
+<code>/setflood 10</code>\n\
+<code>/setfloodmode mute</code>\n\
+<code>/setflood off</code>\n\n\
+<i>The flood limit should be set between 3 and 100.</i>";
 
-const HELP_DISABLE: &str = "\
+const _HELP_DISABLE: &str = "\
 <b>🔒 Disable Module</b>\n\n\
-<b>Commands:</b>\n\
-/disable &lt;command&gt; - Disable a command\n\
-/enable &lt;command&gt; - Enable a command\n\
-/disabled - List disabled commands\n\n\
-<i>Disabled commands won't work until re-enabled.</i>";
+This module allows you to disable commonly used commands, so no one can use them.\n\n\
+<b>Admin Commands:</b>\n\
+- /disable <code>&lt;command&gt;</code>: Stop users from using the command in this group.\n\
+- /enable <code>&lt;command&gt;</code>: Allow users to use the command again.\n\
+- /disabled: List the disabled commands in this chat.\n\
+- /disableable: List all disableable commands.\n\n\
+<b>Examples:</b>\n\
+<code>/disable rules</code>\n\
+<code>/enable rules</code>\n\n\
+<i>Note: Disabled commands are only disabled for non-admins. All admins can still use them.</i>";
 
-const HELP_LOCKS: &str = "\
+const _HELP_LOCKS: &str = "\
 <b>🔐 Locks Module</b>\n\n\
-<b>Commands:</b>\n\
-/lock &lt;type&gt; - Lock a message type\n\
-/unlock &lt;type&gt; - Unlock a message type\n\
-/locks - View current locks\n\
-/locktypes - List available lock types\n\n\
+<b>Admin Commands:</b>\n\
+- /lock <code>&lt;type&gt;</code>: Lock a chat permission.\n\
+- /unlock <code>&lt;type&gt;</code>: Unlock a chat permission.\n\
+- /locks: View current chat locks.\n\
+- /locktypes: Check available lock types.\n\n\
 <b>Lock types:</b> sticker, audio, voice, document, video, photo, gif, url, forward, game, location, media, all\n\n\
-<i>Locked message types will be auto-deleted.</i>";
+<b>Examples:</b>\n\
+<code>/lock media</code> — locks all media messages in the chat.\n\
+<code>/lock url</code> — auto-deletes all messages with URLs.\n\
+<code>/unlock all</code> — remove all locks.\n\n\
+<i>Locking bots will stop non-admins from adding bots to the chat.</i>";
 
-const HELP_LOGCHANNEL: &str = "\
+const _HELP_LOGCHANNEL: &str = "\
 <b>📋 Log Channel Module</b>\n\n\
-<b>Commands:</b>\n\
-/logchannel - View current log channel\n\
-/setlogchannel &lt;channel_id&gt; - Set log channel\n\
-/unsetlogchannel - Remove log channel\n\n\
+<b>Admin Commands:</b>\n\
+- /logchannel: Get log channel info.\n\
+- /setlogchannel <code>&lt;channel_id&gt;</code>: Set the log channel.\n\
+- /unsetlogchannel: Unset the log channel.\n\n\
+<b>Setup:</b>\n\
+1. Add the bot to the desired channel (as an admin)\n\
+2. Send <code>/setlogchannel &lt;channel_id&gt;</code> in the group\n\n\
 <i>Admin actions will be logged to the specified channel.</i>";
 
-const HELP_REPORTS: &str = "\
+const _HELP_REPORTS: &str = "\
 <b>📢 Reports Module</b>\n\n\
-<b>Commands:</b>\n\
-/report - Report a message (reply)\n\
-/reports &lt;on/off&gt; - Toggle reporting\n\
-@admin - Tag to report a message\n\n\
-<i>Reports notify all admins about problematic messages.</i>";
+Don't have time to monitor your group 24/7? Let your members help!\n\n\
+<b>User Commands:</b>\n\
+- /report <code>&lt;reason&gt;</code>: Reply to a message to report it to admins.\n\
+- @admin: Same as /report.\n\n\
+<b>Admin Commands:</b>\n\
+- /reports <code>&lt;on/off&gt;</code>: Change report setting, or view current status.\n\n\
+<b>Example:</b>\n\
+→ Reply to a spam message: <code>/report Spam</code>\n\n\
+<i>NOTE: Neither /report nor @admin will get triggered if used by admins. You MUST reply to a message to report a user.</i>";
 
-const HELP_GBANS: &str = "\
+const _HELP_GBANS: &str = "\
 <b>🌐 Global Bans Module</b>\n\n\
-<b>Commands:</b>\n\
-/gban &lt;user&gt; [reason] - Globally ban a user\n\
-/ungban &lt;user&gt; - Remove global ban\n\
-/gbanlist - List all global bans\n\n\
-<i>Only bot owner/sudo can use these commands.\nGbanned users are auto-banned in all groups.</i>";
+<b>Owner/Sudo Commands:</b>\n\
+- /gban <code>&lt;user&gt;</code> <code>[reason]</code>: Globally ban a user across all groups.\n\
+- /ungban <code>&lt;user&gt;</code>: Remove a global ban.\n\
+- /gbanlist: List all global bans.\n\n\
+<b>Examples:</b>\n\
+<code>/gban @spammer Spam across multiple groups</code>\n\
+<code>/ungban 123456789</code>\n\n\
+<i>Only bot owner/sudo can use these commands. Gbanned users are auto-banned when they join any group.</i>";
 
-const HELP_BACKUPS: &str = "\
+const _HELP_BACKUPS: &str = "\
 <b>💾 Backups Module</b>\n\n\
-<b>Commands:</b>\n\
-/export - Export chat settings as JSON\n\
-/import - Import settings from a backup file (reply)\n\n\
-<i>Only group owners can export/import settings.\nBackups include: notes, filters, blacklist, rules, settings, locks.</i>";
+<b>Owner Commands:</b>\n\
+- /export: Export chat settings as JSON.\n\
+- /import: Import settings from a backup file (reply to file).\n\n\
+<b>What's included:</b>\n\
+Notes, filters, blacklist, rules, warns, locks, and all chat settings.\n\n\
+<i>Only group owners can export/import settings.</i>";
 
-const HELP_CONNECTIONS: &str = "\
+const _HELP_CONNECTIONS: &str = "\
 <b>🔗 Connections Module</b>\n\n\
-<b>Commands:</b>\n\
-/connect - Connect to current group\n\
-/connect &lt;chat_id&gt; - Connect to a group (from PM)\n\
-/disconnect - Disconnect from group\n\
-/connection - Check connection status\n\n\
-<i>Connect to manage a group from bot's PM.</i>";
+This module allows you to connect to a chat's database and manage things without the chat knowing about it!\n\n\
+<b>User Commands:</b>\n\
+- /connect <code>&lt;chatid&gt;</code>: Connect to the specified chat.\n\
+- /disconnect: Disconnect from the current chat.\n\
+- /connection: See info about the currently connected chat.\n\n\
+<b>Admin Commands:</b>\n\
+- /allowconnect <code>&lt;yes/no&gt;</code>: Allow users to connect to this chat or not.\n\n\
+<b>Example:</b>\n\
+<code>/connect -1001234567890</code>\n\n\
+<i>You can retrieve the chat id using /id in your chat. Don't be surprised if the id is negative; all supergroups have negative ids.</i>";
 
-const HELP_AFK: &str = "\
+const _HELP_AFK: &str = "\
 <b>💤 AFK Module</b>\n\n\
 <b>Commands:</b>\n\
-/afk [reason] - Set yourself as AFK\n\n\
+- /afk <code>[reason]</code>: Mark yourself as AFK (Away From Keyboard).\n\n\
 <b>Auto-triggers:</b>\n\
-• Sending \"brb\" sets you AFK\n\
-• Sending any message removes AFK\n\
-• Replying/mentioning an AFK user shows their status\n\n\
-<i>Let others know you're away from keyboard.</i>";
+- Sending <code>brb</code> also sets you AFK.\n\
+- Sending any message removes your AFK status.\n\
+- Replying to or mentioning an AFK user shows their AFK status and reason.\n\n\
+<b>Examples:</b>\n\
+<code>/afk Gone for lunch</code>\n\
+<code>/afk</code>\n\n\
+<i>Let others know you're away!</i>";
 
-const HELP_BLSTICKERS: &str = "\
+const _HELP_BLSTICKERS: &str = "\
 <b>🎨 Sticker Blacklist Module</b>\n\n\
-<b>Commands:</b>\n\
-/blsticker - View blacklisted sticker sets\n\
-/addblsticker &lt;set_name&gt; - Add sticker set (or reply to sticker)\n\
-/rmblsticker &lt;set_name&gt; - Remove sticker set\n\
-/blstickermode &lt;off/del/warn/mute/kick/ban&gt; - Set action\n\n\
-<i>Block specific sticker packs from being used.</i>";
+<b>Admin Commands:</b>\n\
+- /blsticker: View blacklisted sticker sets.\n\
+- /addblsticker <code>&lt;set_name&gt;</code>: Blacklist a sticker set (or reply to a sticker).\n\
+- /rmblsticker <code>&lt;set_name&gt;</code>: Remove sticker set from blacklist.\n\
+- /blstickermode <code>&lt;off/del/warn/mute/kick/ban&gt;</code>: Set action for blacklisted stickers.\n\n\
+<b>Examples:</b>\n\
+<code>/addblsticker</code> (reply to a sticker)\n\
+<code>/blstickermode ban</code>\n\n\
+<i>Block specific sticker packs from being used in your chat.</i>";
 
-const HELP_CHATPERMS: &str = "\
+const _HELP_CHATPERMS: &str = "\
 <b>🛡️ Chat Permissions Module</b>\n\n\
-<b>Commands:</b>\n\
-/permissions - View current chat permissions\n\
-/setpermissions key=on/off - Set permissions\n\n\
-<b>Keys:</b> messages, media, photos, videos, audios, documents, stickers, polls, preview, info, invite, pin, topics\n\n\
-<i>Example: /setpermissions stickers=off polls=off</i>";
+<b>Admin Commands:</b>\n\
+- /permissions: View current chat permissions.\n\
+- /setpermissions <code>key=on/off</code>: Set permissions.\n\n\
+<b>Available Keys:</b>\n\
+messages, media, photos, videos, audios, documents, stickers, polls, preview, info, invite, pin, topics\n\n\
+<b>Examples:</b>\n\
+<code>/setpermissions stickers=off polls=off</code>\n\
+<code>/setpermissions media=on</code>\n\n\
+<i>Control what group members can send.</i>";
 
-const HELP_USERS: &str = "\
+const _HELP_USERS: &str = "\
 <b>👥 Users Module</b>\n\n\
-<b>Commands:</b>\n\
-/stats - View bot statistics (sudo only)\n\
-/chatlist - List known chats (sudo only)\n\n\
-<i>Users and chats are automatically tracked.\nOnly bot owner/sudo can view this data.</i>";
+Automatic background user and chat tracker. This module silently records every message sender and chat the bot is active in.\n\n\
+<b>Team Commands:</b>\n\
+- /stats: Display bot statistics and system info.\n\
+- /chatlist: Generate and send a list of all active chats.\n\n\
+<i>Only bot owner/sudo can view this data. Users and chats are automatically tracked in the background.</i>";
 
-const HELP_MISC: &str = "\
-<b>📊 Misc</b>\n\n\
+const _HELP_MISC: &str = "\
+<b>📊 Misc Module</b>\n\n\
 <b>Commands:</b>\n\
-/id - Get chat/user ID\n\
-/info &lt;user&gt; - Get user info\n\
-/setlang &lt;en/id&gt; - Set bot language\n\
-/settings - Open settings panel\n\n\
-<i>General utility commands.</i>";
+- /id: Get the current group ID. If used by replying, get that user's ID.\n\
+- /info <code>&lt;user&gt;</code>: Get user info. Can be used as a reply or by passing a username/ID.\n\
+- /ping: Ping the Telegram server!\n\
+- /setlang <code>&lt;en/id&gt;</code>: Set bot language for this chat.\n\
+- /settings: Open settings panel.\n\n\
+<b>Examples:</b>\n\
+<code>/info @username</code>\n\
+<code>/id</code> (reply to a message)\n\
+<code>/setlang en</code>";
 
-const HELP_CAPTCHA: &str = "\
+const _HELP_CAPTCHA: &str = "\
 <b>🔐 Captcha Module</b>\n\n\
-<b>Commands:</b>\n\
-/captcha &lt;on/off&gt; - Toggle captcha verification\n\
-/captchamode &lt;math/text&gt; - Set captcha type\n\
-/captchatime &lt;1-10&gt; - Set timeout in minutes\n\
-/captchaaction &lt;kick/ban/mute&gt; - Set failure action\n\n\
-<i>New members must solve a captcha to chat.\nBot needs restrict members permission.</i>";
+Protect your group from bots and spammers with CAPTCHA verification!\n\n\
+<b>Captcha Types:</b>\n\
+- <b>Math</b>: Solve simple arithmetic problems.\n\
+- <b>Text</b>: Identify text shown in an image.\n\n\
+<b>Admin Commands:</b>\n\
+- /captcha <code>&lt;on/off&gt;</code>: Enable or disable captcha verification.\n\
+- /captchamode <code>&lt;math/text&gt;</code>: Set captcha type.\n\
+- /captchatime <code>&lt;1-10&gt;</code>: Set timeout in minutes (default: 2).\n\
+- /captchaaction <code>&lt;kick/ban/mute&gt;</code>: Set action for failed verification (default: kick).\n\
+- /captchaattempts <code>&lt;1-10&gt;</code>: Set maximum verification attempts (default: 3).\n\n\
+<b>Examples:</b>\n\
+<code>/captcha on</code>\n\
+<code>/captchamode math</code>\n\
+<code>/captchatime 5</code>\n\n\
+<i>When enabled, new members are auto-muted until they complete the captcha. If they fail or timeout, the configured action is taken.</i>";
 
-const HELP_DEVS: &str = "\
+const _HELP_DEVS: &str = "\
 <b>🛠 Devs Module</b>\n\n\
-<b>Owner Only:</b>\n\
-/addsudo &lt;user&gt; - Add sudo user\n\
-/remsudo &lt;user&gt; - Remove sudo user\n\
-/adddev &lt;user&gt; - Add dev user\n\
-/remdev &lt;user&gt; - Remove dev user\n\
-/broadcast &lt;text&gt; - Broadcast to all chats\n\n\
-<b>Dev/Owner:</b>\n\
-/teamusers - List team members\n\
-/chatinfo [chat_id] - Get chat info\n\
-/leavechat &lt;chat_id&gt; - Leave a chat\n\
-/botstats - View bot statistics\n\n\
-<i>Bot management commands for the dev team.</i>";
+Bot management and diagnostic commands restricted to the bot owner and trusted developers.\n\n\
+<b>Team Commands:</b>\n\
+- /stats: Display bot statistics and system info.\n\
+- /teamusers: List all team members.\n\n\
+<b>Owner Commands:</b>\n\
+- /addsudo <code>&lt;user&gt;</code>: Grant sudo permissions to a user.\n\
+- /adddev <code>&lt;user&gt;</code>: Grant developer permissions to a user.\n\
+- /remsudo <code>&lt;user&gt;</code>: Revoke sudo permissions.\n\
+- /remdev <code>&lt;user&gt;</code>: Revoke developer permissions.\n\
+- /broadcast <code>&lt;text&gt;</code>: Broadcast a message to all chats.\n\n\
+<b>Diagnostic Commands:</b>\n\
+- /chatinfo <code>[chat_id]</code>: Display detailed chat information.\n\
+- /chatlist: Generate and send a list of all active chats.\n\
+- /leavechat <code>&lt;chat_id&gt;</code>: Force the bot to leave a specified chat.\n\
+- /botstats: View detailed bot statistics.\n\n\
+<b>Examples:</b>\n\
+<code>/addsudo @trusted_user</code>\n\
+<code>/broadcast Hello everyone!</code>\n\
+<code>/leavechat -1001234567890</code>";
 
-const HELP_SED: &str = "\
+const _HELP_SED: &str = "\
 <b>✏️ Sed/Regex Module</b>\n\n\
 <b>Usage:</b>\n\
 Reply to a message with:\n\
 <code>s/pattern/replacement/flags</code>\n\n\
 <b>Flags:</b>\n\
-• <b>i</b> - Case insensitive\n\
-• <b>g</b> - Replace all occurrences\n\n\
-<b>Delimiters:</b> / : | _\n\n\
-<i>Example: s/hello/bye/gi</i>";
+- <b>i</b> — Case insensitive\n\
+- <b>g</b> — Replace all occurrences\n\n\
+<b>Delimiters:</b> <code>/</code> <code>:</code> <code>|</code> <code>_</code>\n\n\
+<b>Examples:</b>\n\
+<code>s/hello/bye/gi</code>\n\
+<code>s|typo|fixed|</code>\n\
+<code>s/teh/the/g</code>\n\n\
+<i>The resulting message cannot be larger than 4096 characters. Special characters (<code>+*.?\\</code>) need to be escaped.</i>";
 
-const HELP_USERINFO: &str = "\
+const _HELP_USERINFO: &str = "\
 <b>📋 Bios &amp; Abouts Module</b>\n\n\
 <b>Commands:</b>\n\
-/setme &lt;text&gt; - Set your own info\n\
-/me [user] - View user info\n\
-/setbio &lt;text&gt; - Set another user's bio (reply)\n\
-/bio [user] - View user bio\n\n\
-<i>Bio can only be set by others. Info is set by yourself.</i>";
+- /setbio <code>&lt;text&gt;</code>: Set another user's bio (while replying).\n\
+- /bio <code>[user]</code>: Get your or another user's bio. Cannot be set by yourself.\n\
+- /setme <code>&lt;text&gt;</code>: Set your own info.\n\
+- /me <code>[user]</code>: Get your or another user's info.\n\n\
+<b>Examples:</b>\n\
+<code>/setme Rust enthusiast and bot developer</code>\n\
+<code>/setbio This person is cool!</code> (reply to user)\n\
+<code>/bio @username</code>";
 
-const HELP_CLEANER: &str = "\
+const _HELP_CLEANER: &str = "\
 <b>🧹 Cleaner Module</b>\n\n\
-<b>Commands:</b>\n\
-/cleanservice &lt;on/off&gt; - Auto-delete service messages (join, leave, pin, etc.)\n\
-/cleanbluetext &lt;on/off&gt; - Auto-delete unrecognized bot commands\n\n\
-<i>Keeps your chat clean from clutter.</i>";
+<b>Admin Commands:</b>\n\
+- /cleanservice <code>&lt;on/off&gt;</code>: Auto-delete service messages (join, leave, pin notifications, etc.)\n\
+- /cleanbluetext <code>&lt;on/off&gt;</code>: Auto-delete unrecognized bot commands (blue text).\n\n\
+<b>Examples:</b>\n\
+<code>/cleanservice on</code>\n\
+<code>/cleanbluetext on</code>\n\n\
+<i>Keeps your chat clean from clutter and service messages.</i>";
 
-const HELP_REACTIONS: &str = "\
+const _HELP_REACTIONS: &str = "\
 <b>⚡ Reactions Module</b>\n\n\
-<b>Commands:</b>\n\
-/addreaction &lt;keyword&gt; &lt;emoji&gt; - React when keyword is mentioned\n\
-/removereaction &lt;keyword&gt; - Remove a reaction\n\
-/reactions - List all reactions\n\
-/resetreactions - Clear all reactions\n\n\
-<i>Bot reacts with emoji when keyword is found in messages.</i>";
+<b>Admin Commands:</b>\n\
+- /addreaction <code>&lt;keyword&gt;</code> <code>&lt;emoji&gt;</code>: React when keyword is mentioned.\n\
+- /removereaction <code>&lt;keyword&gt;</code>: Remove a reaction.\n\
+- /reactions: List all reactions.\n\
+- /resetreactions: Clear all reactions.\n\n\
+<b>Examples:</b>\n\
+<code>/addreaction hello 👋</code>\n\
+<code>/addreaction rust 🦀</code>\n\
+<code>/removereaction hello</code>\n\n\
+<i>Bot reacts with the configured emoji when the keyword is found in a message.</i>";
 
-const HELP_FEDS: &str = "\
+const _HELP_FEDS: &str = "\
 <b>🏛 Federation Module</b>\n\n\
-<b>Commands:</b>\n\
-/newfed &lt;name&gt; - Create a federation\n\
-/delfed &lt;fed_id&gt; - Delete your federation\n\
-/joinfed &lt;fed_id&gt; - Join a federation\n\
-/leavefed - Leave current federation\n\
-/fedinfo [fed_id] - Federation info\n\
-/fedchat - Check chat's federation\n\
-/fedpromote &lt;user&gt; - Promote fed admin\n\
-/feddemote &lt;user&gt; - Demote fed admin\n\
-/fban &lt;user&gt; [reason] - Federation ban\n\
-/unfban &lt;user&gt; - Remove federation ban\n\
-/fbanlist [fed_id] - List federation bans\n\
-/fedrules [text] - View/set fed rules\n\n\
-<i>Federated group management across chats.</i>";
+Federated group management — ban users across all your groups with one command!\n\n\
+<b>General Commands:</b>\n\
+- /newfed <code>&lt;name&gt;</code>: Create a federation.\n\
+- /delfed <code>&lt;fed_id&gt;</code>: Delete your federation.\n\
+- /fedinfo <code>[fed_id]</code>: Federation info.\n\
+- /fedchat: Check this chat's federation.\n\n\
+<b>Admin Commands:</b>\n\
+- /joinfed <code>&lt;fed_id&gt;</code>: Join a federation.\n\
+- /leavefed: Leave current federation.\n\
+- /fedpromote <code>&lt;user&gt;</code>: Promote a fed admin.\n\
+- /feddemote <code>&lt;user&gt;</code>: Demote a fed admin.\n\
+- /fban <code>&lt;user&gt;</code> <code>[reason]</code>: Federation ban.\n\
+- /unfban <code>&lt;user&gt;</code>: Remove federation ban.\n\
+- /fbanlist <code>[fed_id]</code>: List federation bans.\n\
+- /fedrules <code>[text]</code>: View/set fed rules.\n\n\
+<b>Examples:</b>\n\
+<code>/newfed My Network</code>\n\
+<code>/fban @spammer Spam across groups</code>\n\
+<code>/fedrules Be respectful in all federated chats</code>";
 
-pub async fn help_command(bot: Bot, msg: Message) -> ResponseResult<()> {
-    let text = "<b>📖 Ferris Bot Help</b>\n\n\
-        Select a module below to see available commands.\n\
-        Use buttons to navigate between modules.";
+pub async fn help_command(bot: Bot, msg: Message, pool: db::Pool) -> ResponseResult<()> {
+    let lang = i18n::get_chat_lang(&pool, msg.chat.id.0).await;
+    let text = help_text(&lang, "help-header");
 
     bot.send_message(msg.chat.id, text)
         .parse_mode(ParseMode::Html)
@@ -300,15 +433,14 @@ pub async fn help_command(bot: Bot, msg: Message) -> ResponseResult<()> {
     Ok(())
 }
 
-pub async fn help_main_callback(bot: Bot, q: CallbackQuery) -> ResponseResult<()> {
+pub async fn help_main_callback(bot: Bot, q: CallbackQuery, pool: db::Pool) -> ResponseResult<()> {
     let msg = match q.message {
         Some(ref m) => m.clone(),
         None => return Ok(()),
     };
 
-    let text = "<b>📖 Ferris Bot Help</b>\n\n\
-        Select a module below to see available commands.\n\
-        Use buttons to navigate between modules.";
+    let lang = i18n::get_chat_lang(&pool, msg.chat().id.0).await;
+    let text = help_text(&lang, "help-header");
 
     bot.edit_message_text(msg.chat().id, msg.id(), text)
         .parse_mode(ParseMode::Html)
@@ -318,72 +450,137 @@ pub async fn help_main_callback(bot: Bot, q: CallbackQuery) -> ResponseResult<()
     Ok(())
 }
 
-pub async fn help_module_callback(bot: Bot, q: CallbackQuery) -> ResponseResult<()> {
+pub async fn help_module_callback(bot: Bot, q: CallbackQuery, pool: db::Pool) -> ResponseResult<()> {
+    let msg = match q.message {
+        Some(ref m) => m.clone(),
+        None => return Ok(()),
+    };
+
+    let lang = i18n::get_chat_lang(&pool, msg.chat().id.0).await;
+    let data = q.data.as_deref().unwrap_or("");
+    let key = match data {
+        "help_admin" => "help-admin",
+        "help_bans" => "help-bans",
+        "help_mutes" => "help-mutes",
+        "help_warns" => "help-warns",
+        "help_notes" => "help-notes",
+        "help_filters" => "help-filters",
+        "help_welcome" => "help-welcome",
+        "help_rules" => "help-rules",
+        "help_blacklist" => "help-blacklist",
+        "help_purges" => "help-purges",
+        "help_pins" => "help-pins",
+        "help_antiflood" => "help-antiflood",
+        "help_disable" => "help-disable",
+        "help_locks" => "help-locks",
+        "help_logchannel" => "help-logchannel",
+        "help_reports" => "help-reports",
+        "help_gbans" => "help-gbans",
+        "help_backups" => "help-backups",
+        "help_connections" => "help-connections",
+        "help_afk" => "help-afk",
+        "help_blstickers" => "help-blstickers",
+        "help_chatperms" => "help-chatperms",
+        "help_users" => "help-users",
+        "help_misc" => "help-misc",
+        "help_captcha" => "help-captcha",
+        "help_devs" => "help-devs",
+        "help_feds" => "help-feds",
+        "help_sed" => "help-sed",
+        "help_userinfo" => "help-userinfo",
+        "help_cleaner" => "help-cleaner",
+        "help_reactions" => "help-reactions",
+        _ => "help-header",
+    };
+    let text = help_text(&lang, key);
+
+    let module_suffix = data.strip_prefix("help_").unwrap_or("");
+    let keyboard = if module_suffix == "notes" {
+        inline::help_notes_keyboard()
+    } else {
+        inline::help_module_keyboard(module_suffix)
+    };
+    bot.edit_message_text(msg.chat().id, msg.id(), text)
+        .parse_mode(ParseMode::Html)
+        .reply_markup(keyboard)
+        .await?;
+    bot.answer_callback_query(q.id.clone()).await?;
+    Ok(())
+}
+
+pub async fn example_callback(bot: Bot, q: CallbackQuery, pool: db::Pool) -> ResponseResult<()> {
     let msg = match q.message {
         Some(ref m) => m.clone(),
         None => return Ok(()),
     };
 
     let data = q.data.as_deref().unwrap_or("");
-    let text = match data {
-        "help_admin" => HELP_ADMIN,
-        "help_bans" => HELP_BANS,
-        "help_mutes" => HELP_MUTES,
-        "help_warns" => HELP_WARNS,
-        "help_notes" => HELP_NOTES,
-        "help_filters" => HELP_FILTERS,
-        "help_welcome" => HELP_WELCOME,
-        "help_rules" => HELP_RULES,
-        "help_blacklist" => HELP_BLACKLIST,
-        "help_purges" => HELP_PURGES,
-        "help_pins" => HELP_PINS,
-        "help_antiflood" => HELP_ANTIFLOOD,
-        "help_disable" => HELP_DISABLE,
-        "help_locks" => HELP_LOCKS,
-        "help_logchannel" => HELP_LOGCHANNEL,
-        "help_reports" => HELP_REPORTS,
-        "help_gbans" => HELP_GBANS,
-        "help_backups" => HELP_BACKUPS,
-        "help_connections" => HELP_CONNECTIONS,
-        "help_afk" => HELP_AFK,
-        "help_blstickers" => HELP_BLSTICKERS,
-        "help_chatperms" => HELP_CHATPERMS,
-        "help_users" => HELP_USERS,
-        "help_misc" => HELP_MISC,
-        "help_captcha" => HELP_CAPTCHA,
-        "help_devs" => HELP_DEVS,
-        "help_feds" => HELP_FEDS,
-        "help_sed" => HELP_SED,
-        "help_userinfo" => HELP_USERINFO,
-        "help_cleaner" => HELP_CLEANER,
-        "help_reactions" => HELP_REACTIONS,
-        _ => "Unknown module",
-    };
+    let module = data.strip_prefix("example_").unwrap_or("");
+    let lang = i18n::get_chat_lang(&pool, msg.chat().id.0).await;
+    let key = format!("help-example-{}", module);
+    let text = i18n::t(&lang, &key, None);
 
     bot.edit_message_text(msg.chat().id, msg.id(), text)
         .parse_mode(ParseMode::Html)
-        .reply_markup(inline::back_to_help_keyboard())
+        .reply_markup(inline::example_back_keyboard(module))
         .await?;
     bot.answer_callback_query(q.id.clone()).await?;
     Ok(())
 }
 
-pub async fn about_callback(bot: Bot, q: CallbackQuery) -> ResponseResult<()> {
+pub async fn formatting_callback(bot: Bot, q: CallbackQuery, pool: db::Pool) -> ResponseResult<()> {
     let msg = match q.message {
         Some(ref m) => m.clone(),
         None => return Ok(()),
     };
 
-    let text = "<b>ℹ️ About Ferris Bot</b>\n\n\
-        🦀 Built with Rust using Teloxide v0.17.0\n\
-        📦 SQLite database with sqlx\n\
-        ⚡ Async & high performance\n\n\
-        <b>Features:</b>\n\
-        • Full group management\n\
-        • Inline keyboard navigation\n\
-        • Multi-language support\n\
-        • Modular architecture\n\n\
-        Made with ❤️ by Arumi";
+    let data = q.data.as_deref().unwrap_or("");
+    let module = data.strip_prefix("fmt_").unwrap_or("");
+    let lang = i18n::get_chat_lang(&pool, msg.chat().id.0).await;
+    let text = i18n::t(&lang, "help-formatting", None);
+
+    bot.edit_message_text(msg.chat().id, msg.id(), text)
+        .parse_mode(ParseMode::Html)
+        .reply_markup(inline::formatting_main_keyboard(module))
+        .await?;
+    bot.answer_callback_query(q.id.clone()).await?;
+    Ok(())
+}
+
+pub async fn formatting_sub_callback(bot: Bot, q: CallbackQuery, pool: db::Pool) -> ResponseResult<()> {
+    let msg = match q.message {
+        Some(ref m) => m.clone(),
+        None => return Ok(()),
+    };
+
+    let data = q.data.as_deref().unwrap_or("");
+    // data is like "fmtsub_markdown_notes" or "fmtsub_fillings_bans"
+    let rest = data.strip_prefix("fmtsub_").unwrap_or("");
+    let (sub, module) = match rest.split_once('_') {
+        Some((s, m)) => (s, m),
+        None => return Ok(()),
+    };
+
+    let lang = i18n::get_chat_lang(&pool, msg.chat().id.0).await;
+    let key = format!("help-formatting-{}", sub);
+    let text = i18n::t(&lang, &key, None);
+
+    bot.edit_message_text(msg.chat().id, msg.id(), text)
+        .parse_mode(ParseMode::Html)
+        .reply_markup(inline::formatting_sub_keyboard(module))
+        .await?;
+    bot.answer_callback_query(q.id.clone()).await?;
+    Ok(())
+}
+
+pub async fn about_callback(bot: Bot, q: CallbackQuery, pool: db::Pool) -> ResponseResult<()> {
+    let msg = match q.message {
+        Some(ref m) => m.clone(),
+        None => return Ok(()),
+    };
+
+    let lang = i18n::get_chat_lang(&pool, msg.chat().id.0).await;
+    let text = help_text(&lang, "help-about");
 
     bot.edit_message_text(msg.chat().id, msg.id(), text)
         .parse_mode(ParseMode::Html)

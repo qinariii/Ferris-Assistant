@@ -4,29 +4,7 @@ use teloxide::types::ParseMode;
 use crate::config::AppConfig;
 use crate::db;
 use crate::keyboards::inline;
-use crate::utils::{extraction, formatting, i18n, permissions, LogErrExt};
-
-/// Kick a user safely: ban lalu unban dengan retry, tanpa sleep arbitrary.
-/// Ini menggantikan pola `ban -> sleep(1) -> unban` yang rawan race condition.
-async fn safe_kick(bot: &Bot, chat_id: ChatId, user_id: UserId) -> Result<(), teloxide::RequestError> {
-    bot.ban_chat_member(chat_id, user_id).await?;
-
-    // Retry unban hingga 3x dengan backoff singkat
-    for attempt in 0u32..3 {
-        match bot.unban_chat_member(chat_id, user_id).await {
-            Ok(_) => return Ok(()),
-            Err(e) => {
-                if attempt == 2 {
-                    return Err(e);
-                }
-                // Backoff eksponensial: 200ms, 400ms
-                let delay = tokio::time::Duration::from_millis(200 * (1u64 << attempt));
-                tokio::time::sleep(delay).await;
-            }
-        }
-    }
-    Ok(())
-}
+use crate::utils::{extraction, formatting, i18n, kick::safe_kick, permissions, LogErrExt};
 
 pub async fn ban(bot: Bot, msg: Message, cfg: AppConfig, pool: db::Pool) -> ResponseResult<()> {
     let chat_id = msg.chat.id;

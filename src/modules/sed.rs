@@ -33,7 +33,15 @@ fn parse_sed(text: &str) -> Option<SedResult> {
     let mut pattern = String::new();
     while i < chars.len() {
         if chars[i] == '\\' && i + 1 < chars.len() {
-            pattern.push(chars[i + 1]);
+            if chars[i + 1] == delim {
+                // Escaped delimiter: strip backslash, keep delimiter char
+                pattern.push(delim);
+            } else {
+                // Other escape (e.g. \d, \w, \s): preserve both chars so
+                // the regex engine can interpret them correctly.
+                pattern.push('\\');
+                pattern.push(chars[i + 1]);
+            }
             i += 2;
             continue;
         }
@@ -49,10 +57,18 @@ fn parse_sed(text: &str) -> Option<SedResult> {
         return None;
     }
 
-    // Parse replacement
+    // Parse replacement (only need to handle escaped delimiter here)
     let mut replacement = String::new();
     while i < chars.len() {
-        if chars[i] == '\\' && i + 1 < chars.len() && chars[i + 1] == delim {
+        if chars[i] == '\\' && i + 1 < chars.len() {
+            if chars[i + 1] == delim {
+                // Escaped delimiter in replacement
+                replacement.push(delim);
+                i += 2;
+                continue;
+            }
+            // Other backslash sequences in replacement pass through as-is
+            replacement.push('\\');
             replacement.push(chars[i + 1]);
             i += 2;
             continue;

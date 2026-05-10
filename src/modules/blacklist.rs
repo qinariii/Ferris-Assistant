@@ -5,9 +5,11 @@ use once_cell::sync::Lazy;
 use teloxide::prelude::*;
 use teloxide::types::{ChatPermissions, ParseMode};
 
+use regex::Regex;
+
 use crate::config::AppConfig;
 use crate::db;
-use crate::utils::{cache::TtlCache, formatting, i18n, permissions};
+use crate::utils::{cache::TtlCache, formatting, i18n, kick::safe_kick, permissions};
 
 static BLACKLIST_CACHE: Lazy<Arc<TtlCache<i64, Vec<db::models::Blacklist>>>> =
     Lazy::new(|| TtlCache::new(Duration::from_secs(30)));
@@ -202,7 +204,7 @@ pub async fn check_blacklist(
         return Ok(false);
     }
 
-    let text = msg.text().unwrap_or("").to_lowercase();
+    let text = msg.text().or_else(|| msg.caption()).unwrap_or("").to_lowercase();
     if text.is_empty() {
         return Ok(false);
     }
@@ -218,7 +220,9 @@ pub async fn check_blacklist(
     };
 
     for item in &blacklist {
-        if text.contains(&item.trigger_word) {
+        let pattern = format!(r"(?i)\b{}\b", regex::escape(&item.trigger_word));
+        let matched = Regex::new(&pattern).map(|re| re.is_match(&text)).unwrap_or(false);
+        if matched {
             let lang = i18n::get_chat_lang(&pool, chat_id.0).await;
             let name = formatting::mention_html(from);
             match item.mode.as_str() {
@@ -249,9 +253,7 @@ pub async fn check_blacklist(
                 }
                 "kick" => {
                     bot.delete_message(chat_id, msg.id).await.ok();
-                    bot.ban_chat_member(chat_id, from.id).await.ok();
-                    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-                    bot.unban_chat_member(chat_id, from.id).await.ok();
+                    safe_kick(&bot, chat_id, from.id).await.ok();
                 }
                 "ban" => {
                     bot.delete_message(chat_id, msg.id).await.ok();
